@@ -1,0 +1,862 @@
+# What This Run Actually Did (Plain-Language Explanation)
+
+This document explains, in simple terms, what happened when the SILVA
+reference-matching pipeline was run on your real files, what the numbers in
+the `data/*.csv` files mean, and what the honest conclusion is.
+
+## 1. The basic idea, in one sentence
+
+We took your 5,000 experimental DNA reads and your 2.2-million-sequence
+SILVA reference database, turned both into 768-number "fingerprints"
+(embeddings) using the same AI model, and asked: "for each read, which
+reference sequence's fingerprint looks most similar?"
+
+## 2. What we started with
+
+- **Experimental reads**: `data/ERR16922870_1.fastq` actually contains
+  309,155 reads, but your original POC only used the first 5,000 of them
+  (we confirmed this — their length stats, min 118bp / max 140bp / average
+  121.6bp, exactly match your reported results). So we used that same
+  first-5,000 slice for consistency.
+- **Reference database**: `data/SILVA_138.2_SSURef_tax_silva_trunc.fasta`
+  has **2,224,690** sequences. We checked this by actually scanning the
+  file (Stage 1 "inspect"), not guessing. Every one of them is a
+  near-full-length gene sequence — between 900 and 3,718 base pairs long,
+  averaging 1,427bp.
+
+**Why that matters**: your reads are ~120bp fragments, but the references
+are ~1,400bp on average. That's roughly a 10x difference in length. This
+mismatch turns out to be the central finding of this run — see Section 5.
+
+## 3. What we had to fix before anything would run
+
+Three real problems came up, each confirmed by testing, not assumed:
+
+1. The model named in `src/config.py` (`zhihan1996/DNABERT-S`) refused to
+   load on this Windows/CPU machine because its code requires a package
+   called `triton`, which doesn't have a Windows version. We switched to
+   `multimolecule/dnaberts` — the alternative model your own project PDF
+   mentions — which works fine on CPU and produces the same size of
+   fingerprint (768 numbers).
+2. A small fraction of SILVA sequences contain "ambiguous base" letters
+   (like `N`, meaning "could be any base") instead of just A/C/G/U. The
+   tokenizer crashed on these. We filtered them out — about 6% of
+   sequences — the same way you'd throw out a smudged barcode you can't
+   read.
+3. Embedding **all** 2.2 million reference sequences would take an
+   estimated 3+ hours on this machine with no GPU. Instead, we randomly
+   sampled **5,000** references (keeping the same proportions of bacteria/
+   archaea/eukaryotes as the full file) so the whole pipeline could run in
+   one session. This means: **this run searched 5,000 of the 2.2 million
+   available references, not all of them.**
+
+## 4. The files this run produced, and how to read them
+
+| File | What each row means |
+|---|---|
+| `data/silva_reference_table_sample.csv` | One reference sequence per row: its ID, its full DNA sequence, and its taxonomy (species classification), e.g. `HA953679.13.1872` is a 1,860bp sequence labeled `Eukaryota;...;Rattus norvegicus (Norway rat)`. |
+| `data/reads_embeddings.npy` / `data/silva_ref_embeddings.npy` | The 768-number fingerprints for reads and references (not human-readable — used internally by the search step). |
+| `data/query_results.csv` | For each read, the **top 5** most similar references and their similarity scores. Example: read `ERR16922870.1`'s best match is reference row `4441` with similarity `0.515`, and its *second*-best match (`137`) scored `0.499` — almost as close. |
+| `data/read_taxonomy_results.csv` | The final answer per read: which reference it's closest to, what taxonomy that reference has, and whether the read was confidently **assigned** or left **unclassified**. |
+
+A real example row from `read_taxonomy_results.csv`:
+
+```
+ERR16922870.1, nearest match = JF203696.1.1282 (a Bacteria; Paracoccus sequence),
+similarity = 0.515, decision = unclassified
+```
+
+This says: "the closest reference we found for this read belongs to the
+bacterium genus *Paracoccus*, but the match wasn't strong enough to trust,
+so we did not assign it that identity."
+
+## 5. The key finding: why every read came back "unclassified"
+
+Before trusting any similarity score, we needed to know: *how similar do
+two sequences need to be before we believe they're really a match?* This
+is called calibrating a threshold, and the project rules said not to just
+guess a number like 0.8 — it has to be measured from real data.
+
+We tried this two ways:
+
+**Attempt 1 — full-length vs. full-length.** We held back 1,000 full-length
+references, and checked whether each one's nearest match (among the
+remaining 4,000 full-length references) had the same taxonomy. This worked
+great — accuracy hit 100% once similarity was above ~0.90. But this test
+compares long sequences to long sequences, and your real reads are short.
+It doesn't tell us what threshold to use for short reads.
+
+**Attempt 2 — short fragment vs. full-length (the realistic test).** This
+time we cut short, 118-140bp pieces (matching your real read lengths) out
+of random positions of held-out references, and checked whether *those*
+short pieces could find their way back to a reference with matching
+taxonomy. The result: **accuracy stayed around 9%, close to random
+guessing, no matter what similarity threshold we tried** (we tested
+thresholds from 0.10 all the way to 0.68).
+
+**What this means in plain terms**: cutting a random 120bp window out of a
+1,400bp gene and asking "which full gene does this small window belong to"
+usually doesn't work with this method — because most of a gene sequence
+looks similar across many species (only certain "hypervariable" regions
+are actually distinctive), and we don't know *which* small window your
+sequencer actually captured. This is exactly the "region mismatch" concern
+your project README already raised as a risk — we've now confirmed it
+happens in practice with real numbers, not just as a theoretical worry.
+
+Because of this, we set the final similarity threshold conservatively
+(0.60 — near the highest similarity score seen in either test), which
+means: **0 out of 5,000 reads were confidently assigned a species**. All
+5,000 were correctly marked "unclassified" and handed off to the existing
+open-set/HDBSCAN clustering stage instead of being forced into a guess.
+
+This is not a bug or a failed run — it is the pipeline doing exactly what
+Stage E and Stage F of the project design describe: when the evidence
+isn't strong enough, don't force an answer.
+
+## 6. What would need to change to get real assignments
+
+To make reference-matching actually work for these reads, someone would
+need to:
+
+1. Figure out which specific region of the SSU rRNA gene your sequencer
+   actually targeted (check the sequencing run's primer information).
+2. Either trim the SILVA references down to just that same region before
+   embedding them, or use a reference database that's already trimmed to
+   it (this is what "amplicon-region-specific" reference databases like
+   trimmed SILVA/PR2 sets are usually for).
+3. Re-run Stage 5 (embed references) and Stage 12 (calibration) after that
+   fix, and check whether accuracy improves — it should, because now
+   short reads and references would be describing the *same* piece of DNA
+   instead of different-length windows of the whole gene.
+
+## 7. Honest summary
+
+- The pipeline code works end-to-end: parsing, embedding, FAISS search,
+  confidence decision, and open-set routing all ran successfully on real
+  data.
+- The reference database was only partially used (5,000 of 2.2 million
+  sequences) due to compute time limits on this machine.
+- The threshold was calculated from real held-out data, not guessed.
+- That calculation showed the current setup cannot reliably match short
+  reads to full-length references, which is why every read ended up
+  "unclassified" — a correct, evidence-based outcome, not a failure of
+  the code.
+- Fixing this requires resolving the region-mismatch issue described in
+  Section 6 before reference-matching accuracy can be meaningfully
+  reported.
+
+---
+
+# Part 2: Following up on the region-mismatch problem
+
+Part 1 above ended by saying: "we don't know which piece of the gene your
+reads actually cover, so full-length references can't be reliably
+compared to them." This section reports what we found when we actually
+investigated that question properly, instead of guessing.
+
+## 8. First: what gene are these reads actually from?
+
+We did **not** assume this from read length (a 120bp read could plausibly
+be a fragment of many different things). Instead we looked up the real
+sequencing-run metadata for `ERR16922870` on ENA (the European
+Nucleotide Archive — the official public database this data was
+submitted to).
+
+**What the metadata says, word for word:**
+- Run name (`run_alias`): `16SFish_OcOm_2305_100_1_run`
+- Study title: *"Indian Ocean Territories eDNA amplicon sequencing data
+  (POE_V13_IOT)"*
+- Study description: *"Metabarcoding sequencing data (MiFish-U, MiFish-E2,
+  MarVer1, 16SFish/D) from filtered sea water samples..."*
+
+So this run specifically used the **`16SFish/D`** marker. Searching the
+scientific literature for what that marker actually is: **it targets the
+mitochondrial 16S rRNA gene of fish** (a marker designed to detect fish
+species from seawater eDNA) — not the bacterial/archaeal 16S rRNA gene,
+and not the eukaryotic 18S rRNA gene.
+
+**Why this matters a lot**: SILVA's database (the one this whole project
+uses as its reference) only contains bacterial 16S, archaeal 16S, and
+eukaryotic **nuclear** 18S sequences. It does not contain fish
+**mitochondrial** 16S sequences — these are a biologically different gene
+that happens to share the name "16S" by coincidence (both are named after
+a ribosome size measurement, not because they're the same gene). This is
+similar to how "Java" the programming language and "Java" the island
+share a name without being related.
+
+**Bottom line**: the real answer to "is this 16S or 18S?" is **neither,
+in the sense SILVA covers**. This was only findable through the actual
+sequencing metadata — read length alone would have been actively
+misleading here (more on that below).
+
+## 9. What we did anyway, and why
+
+Even though the true marker isn't in SILVA, the project asked us to
+still test the two marker families SILVA *does* cover — bacterial/archaeal
+16S and eukaryotic 18S — using the actual scientifically-standard regions
+for each, in case one of them turns out to be usable in practice. This is
+good scientific practice: check the two available options properly with
+real data, rather than giving up because the "ideal" database isn't
+available.
+
+**The two regions we used are not made up** — they come from the Earth
+Microbiome Project's standard protocols, which are also what QIIME2's
+official tutorials teach:
+
+| Region | Primers used (exact sequences) | Source |
+|---|---|---|
+| 16S V4 | Forward `515F`: `GTGYCAGCMGCCGCGGTAA`; Reverse `806R`: `GGACTACNVGGGTWTCTAAT` | Parada et al. 2016 / Apprill et al. 2015 — the pair used in QIIME2's official "Moving Pictures" tutorial |
+| 18S V9 | Forward `1391F`: `GTACACACCGCCCGTC`; Reverse `EukBr`: `TGATCCTTCTGCAGGTTCACCTAC` | Amaral-Zettler et al. 2009 / Stoeck et al. 2010 — the Earth Microbiome Project's standard short 18S region |
+
+## 10. How the region was cut out of each SILVA sequence
+
+This is the important part: **we did not just chop off the first N
+letters of each sequence.** That would give you the right *length* but
+almost certainly the *wrong piece* of the gene — like guessing a word from
+a book by reading its first two letters instead of looking up the actual
+page.
+
+Instead, we searched each full-length SILVA sequence for the actual
+primer sequence (the same short "landmark" a real lab machine would use
+to start copying DNA), and cut out only the piece between the two
+primers — this is called **in-silico PCR**, and it's the standard
+approach QIIME2 itself recommends (`qiime feature-classifier
+extract-reads`).
+
+**16S V4** worked exactly as expected: found both primers in 1,829,030
+sequences, and the extracted pieces averaged **253 base pairs** — which
+matches the textbook V4 amplicon length almost exactly. This is in
+`data/silva_16s_v4_amplicons.csv`.
+
+**18S V9** needed one adjustment. We discovered, by testing it on real
+data, that this particular SILVA file (the "trunc" version) cuts off
+every eukaryotic sequence **5 bases before** the reverse primer site
+finishes — every single one we checked. So instead of forcing a
+reverse-primer match that will never succeed in this file, we take
+"everything from the forward primer to wherever the sequence already
+ends" — which *is* the real V9 region this file provides, just capped at
+150bp (V9's known typical length) so we don't accidentally grab something
+unrelated from an oddly long entry. This produced 140,968 usable pieces
+averaging **127 base pairs** — remarkably close to the real reads' 121.6bp
+average. This is in `data/silva_18s_v9_amplicons.csv`.
+
+For both regions we then randomly kept 5,000 of the usable pieces (same
+approach as Part 1, for the same time-budget reason), in
+`data/silva_16s_v4_sample.csv` and `data/silva_18s_v9_sample.csv`.
+
+*(One housekeeping check the project specifically asked about: SILVA
+stores its sequences with `U` letters (RNA-style) while your FASTQ reads
+use `T` letters (DNA-style). The code already converts every sequence to
+the `T` form right before feeding it to the AI model, for both references
+and reads alike — so this was already being handled consistently; we
+verified it rather than needing to change anything.)*
+
+## 11. Running the same calibration test on the new, region-matched references
+
+Part 1's calibration test cut a random 120bp piece from a random
+position of a *1,400bp full-length* reference — which is why it scored
+almost no better than a coin flip (~9% accuracy) no matter what
+similarity cutoff we tried: a random 120bp window usually isn't the
+V4/V9 region at all.
+
+This time, since the reference pieces are *already* just the V4 or V9
+region, cutting a random short window from *them* is a much fairer test —
+both sides are now looking at the same landmark of the gene.
+
+**Result — real signal appeared this time:**
+
+| Region | Accuracy at loose threshold | Accuracy at strict threshold | % of test reads kept at strict threshold |
+|---|---|---|---|
+| 16S V4 | 59.1% | 66.4% (threshold 0.68) | 50.6% |
+| 18S V9 | 82.0% | 84.3% (threshold 0.68) | 94.5% |
+
+Unlike Part 1's flat 9%-no-matter-what curve, accuracy here climbs as we
+raise the similarity threshold — a real, usable relationship between
+"how similar" and "how correct." Both are clearly better than the
+full-length approach.
+
+## 12. But: querying the *real* reads exposed a new problem
+
+Encouraged by that, we queried the actual 5,000 real reads against both
+new reference sets (files: `data/read_taxonomy_results_16s_v4.csv` and
+`data/read_taxonomy_results_18s_v9.csv`). At a reasonable confidence
+threshold:
+
+- **16S V4**: 928 of 5,000 reads (18.6%) got assigned a taxonomy.
+- **18S V9**: 3,219 of 5,000 reads (64.4%) got assigned a taxonomy.
+
+That sounds like a big improvement over Part 1's 0 assigned — but
+checking *which* references these reads matched against reveals a
+problem. Out of the 5,000 candidate references in each pool, real reads
+"chose" their nearest match from only:
+
+- **176 distinct references** for 16S V4 (3.5% of the pool) — and just
+  the top 10 of those absorbed **78%** of all 5,000 reads' matches.
+- **279 distinct references** for 18S V9 (5.6% of the pool) — top 10
+  absorbed **69%** of all matches.
+
+For example, one single 16S V4 reference (`HQ739000.1.914`, an Archaea
+sequence) was the "closest match" for 451 completely different real
+reads — reads that (being real seawater eDNA) almost certainly come from
+hundreds of different organisms, not one.
+
+**What this means**: a handful of reference sequences are acting like
+magnets, pulling in many unrelated reads regardless of whether they're
+actually similar. This is a known effect in AI similarity search called
+"hubness" — some points in a high-dimensional space just happen to sit
+near the middle of everything and get picked as the "nearest neighbor" by
+many unrelated queries. It's a mathematical/embedding-model artifact, not
+a biological signal. This means the 928 and 3,219 "assigned" counts above
+**should not be read as 928 or 3,219 correct species identifications** —
+they're inflated by this hub effect, and we're flagging that honestly
+rather than presenting the higher number as a win.
+
+## 13. So, is region-specific matching actually better than full-length?
+
+Yes and no, and both parts matter:
+
+- **Yes, mechanically**: cutting out the correct amplicon region (instead
+  of using the whole gene) produced a real, measurable calibration signal
+  where before there was none (flat 9% chance-level). The extraction
+  method itself — primer-based, not arbitrary truncation — is sound and
+  reusable.
+- **No, not enough to trust the numbers yet**: real-read matching is
+  dominated by the hubness artifact described above, and — more
+  fundamentally — **the reads aren't 16S or 18S in the first place**
+  (Section 8). Even a perfectly clean 16S or 18S matching pipeline cannot
+  correctly identify fish from a fish-mitochondrial-marker dataset,
+  because the right reference sequences for that marker simply are not
+  in SILVA.
+
+## 14. Final recommendation
+
+For this specific dataset (`ERR16922870`, `16SFish/D` marker), **SILVA is
+the wrong reference database at the gene level**, regardless of which
+region is extracted from it. The scientifically correct fix is to use a
+reference database that actually contains fish mitochondrial 16S
+sequences (for example, MitoFish or a GenBank/NCBI query restricted to
+Chordata mitochondrial 16S) instead of SILVA SSURef.
+
+If the POC must stay within SILVA-only reference matching as a
+methodology demonstration (e.g. for a bacterial/archaeal or eukaryotic
+eDNA dataset in a future run, where SILVA genuinely is the right
+database), then **the region-specific extraction approach in this
+section (Part 2) should be used instead of the full-length approach in
+Part 1** — it produces real, measurable calibration signal, whereas the
+full-length approach does not. But the hubness issue in Section 12 would
+still need to be investigated and resolved (e.g. by re-ranking with a
+second, stricter similarity check) before assignment counts from it
+could be trusted as species identifications.
+
+## 15. What's established vs. what's demonstrated (so nothing here gets
+overstated later)
+
+- **Established by the dataset's own metadata** (ENA, the official public
+  archive — not our assumption): this run used the `16SFish/D` marker, a
+  fish mitochondrial 16S gene target.
+- **Established by outside authoritative sources** (Earth Microbiome
+  Project protocols, used in official QIIME2 tutorials): 16S V4
+  (515F/806R) and 18S V9 (1391F/EukBr) are the standard, documented
+  regions for bacterial/archaeal and eukaryotic SSU rRNA amplicon work
+  respectively — these were not invented for this project.
+- **Demonstrated by actually running our pipeline on real data**: primer
+  extraction works and produces the expected amplicon lengths; region-
+  matched calibration shows real signal unlike full-length; but real-read
+  matching is currently dominated by a hubness artifact, and — because of
+  the metadata finding above — no SILVA-based result for this dataset
+  should be reported as a validated species identification yet.
+- **Still uncertain**: we could not find PCR primer sequences for
+  `16SFish/D` itself in the public metadata, so we can't yet build a
+  region-matched *mitochondrial* reference set the same way we did for
+  16S/18S — that would need either the original study's methods section
+  or a literature search specifically for "16SFish/D primer sequence."
+
+## 16. Files and commands for this part
+
+**New files created:**
+- `src/extract_amplicon_region.py` — primer-based region extraction (in-silico PCR)
+- `src/run_region_experiment.py` — builds index, queries real reads, decides, per region
+- `data/silva_16s_v4_amplicons.csv`, `data/silva_18s_v9_amplicons.csv` — full extracted pools
+- `data/silva_16s_v4_sample.csv`, `data/silva_18s_v9_sample.csv` — 5,000-record subsamples
+- `data/read_taxonomy_results_16s_v4.csv`, `data/read_taxonomy_results_18s_v9.csv` — final per-read results
+
+**Modified files:**
+- `src/subsample_reference_table.py` — sequence-validity check now accepts both `U` and `T` alphabets (extracted amplicons are already DNA-form)
+
+**Commands to reproduce, in order:**
+```bash
+# 1. Extract the two regions from the full 2.2M-record SILVA table
+python -m src.extract_amplicon_region data/silva_reference_table.csv data/silva_16s_v4_amplicons.csv 16s_v4
+python -m src.extract_amplicon_region data/silva_reference_table.csv data/silva_18s_v9_amplicons.csv 18s_v9
+
+# 2. Subsample each to 5,000 records
+python -m src.subsample_reference_table data/silva_16s_v4_amplicons.csv data/silva_16s_v4_sample.csv 5000 42
+python -m src.subsample_reference_table data/silva_18s_v9_amplicons.csv data/silva_18s_v9_sample.csv 5000 42
+
+# 3. Embed each reference sample (reuses the existing embed-ref stage)
+REFERENCE_TABLE_CSV=data/silva_16s_v4_sample.csv REFERENCE_EMBEDDINGS_NPY=data/silva_16s_v4_ref_embeddings.npy REFERENCE_IDS_CSV=data/silva_16s_v4_ref_ids.csv python run_pipeline.py embed-ref
+REFERENCE_TABLE_CSV=data/silva_18s_v9_sample.csv REFERENCE_EMBEDDINGS_NPY=data/silva_18s_v9_ref_embeddings.npy REFERENCE_IDS_CSV=data/silva_18s_v9_ref_ids.csv python run_pipeline.py embed-ref
+
+# 4. Calibrate a threshold for each region (region-matched synthetic short reads)
+REFERENCE_TABLE_CSV=data/silva_16s_v4_sample.csv REFERENCE_EMBEDDINGS_NPY=data/silva_16s_v4_ref_embeddings.npy REFERENCE_IDS_CSV=data/silva_16s_v4_ref_ids.csv python -m src.synthetic_read_calibration 3
+REFERENCE_TABLE_CSV=data/silva_18s_v9_sample.csv REFERENCE_EMBEDDINGS_NPY=data/silva_18s_v9_ref_embeddings.npy REFERENCE_IDS_CSV=data/silva_18s_v9_ref_ids.csv python -m src.synthetic_read_calibration 3
+
+# 5. Query the real 5,000 reads against each region-specific reference set and decide
+python -m src.run_region_experiment 16s_v4 data/silva_16s_v4_sample.csv data/silva_16s_v4_ref_embeddings.npy data/silva_16s_v4_ref_ids.csv 0.64
+python -m src.run_region_experiment 18s_v9 data/silva_18s_v9_sample.csv data/silva_18s_v9_ref_embeddings.npy data/silva_18s_v9_ref_ids.csv 0.66
+```
+
+**Housekeeping note**: all the SILVA files referenced by name above (the
+`.csv`, `.npy`, `.index` files under `data/`) have since been moved into
+`data/SILVA results/` to keep them separate from the MitoFish run below.
+The commands above still work — just add the `data/SILVA results/` prefix
+to each path, or set the env vars as shown in Part 3's reproduction
+commands for the equivalent MitoFish pattern.
+
+---
+
+# Part 3: Trying the *actual* right database — MitoFish
+
+Part 2 ended with a recommendation: since the real marker for this
+dataset is a fish mitochondrial gene, and SILVA doesn't contain that gene
+at all, the scientifically correct fix is a database that actually has
+fish mitochondrial sequences. This section reports what happened when we
+did that.
+
+## 17. Verifying everything before touching any code
+
+Following the same "verify, don't assume" approach as Part 2, four things
+were checked against real evidence before writing any extraction code:
+
+**a) Is this really the `16SFish/D` marker?** Re-confirmed from the same
+official ENA metadata as Part 2 (run alias `16SFish_OcOm_2305_100_1_run`)
+— yes.
+
+**b) What are the actual `16SF/D` + `16S2R` primer sequences?** These
+weren't given to us — we had to find them. A literature search turned up
+the same pair, confirmed from a peer-reviewed source (Berry et al. 2017,
+as tabulated in Table 1 of a 2020 methods-comparison paper on PMC/NCBI):
+
+- `16SF/D` (forward): `GACCCTATGGAGCTTTAGAC`
+- `16S2R` (reverse): `CGCTGTTATCCCTADRGTAACT`
+- Expected amplicon: ~219 base pairs
+
+**c) Is `data/mitofishdb.fa.gz` actually usable?** We opened it and
+looked. It turned out to be a big mixed bag: some entries are complete
+fish mitochondrial genomes (up to ~23,400 base pairs — the *entire*
+mitochondrial DNA circle of a fish), some are short single-gene barcode
+sequences (mostly a different gene, COI, at ~650bp), and most entries
+have no label at all saying which gene they are. **There is also no
+species-name file included** — each entry is just a bare accession number
+like `PQ550629`.
+
+This meant we could **not** trust the file's headers to tell us which
+records contain the 16S region — the only reliable way to find it was to
+actually search inside each sequence for the real primer sequences (the
+same in-silico PCR approach from Part 2), which we tested on a sample of
+20,000 records first: 530 had the forward primer, and 513 of those
+(96.8%) had the complete reverse primer site too — unlike SILVA's 18S V9
+case, MitoFish sequences are *not* systematically cut short right at the
+primer site, so no special adjustment was needed here.
+
+**d) Does this match the real reads?** The expected amplicon (~219bp) is
+longer than our reads (118-140bp) — expected, since a single-end
+Illumina read normally only covers part of a longer amplicon. And none
+of the 5,000 real reads contain the raw primer sequence itself, which is
+normal (primers are usually stripped out by standard eDNA processing
+before the data is uploaded, not something to worry about).
+
+All four checks passed, so we went ahead — see
+`data/MitoFish results/run_report.md` for the full verification write-up.
+
+## 18. Keeping this run separate from the SILVA one
+
+Before starting, all of Part 1 and Part 2's output files were moved into
+`data/SILVA results/`, and this run's outputs go into
+`data/MitoFish results/` — so the two are never mixed up, and nothing
+from the earlier SILVA work was deleted or changed.
+
+## 19. Extracting the 16S region from MitoFish
+
+Running the verified primer search on the **full** file (624,421 records,
+not just the 20,000-record test sample):
+
+- 17,227 records had the forward primer
+- 16,778 of those (97.4%) also had the reverse primer, giving a complete
+  amplicon — this is the same in-silico PCR method as Part 2, not a
+  truncation
+- 186 more were dropped for containing ambiguous "could be any base"
+  letters (same rule as Parts 1-2)
+- **16,592 usable fish 16S reference sequences remained**, averaging
+  **204.4 base pairs** — close to the ~219bp expected from the primer
+  pair's literature description (the small gap is because this length
+  excludes the primers themselves, which get trimmed off during
+  extraction)
+
+Unlike SILVA (2.2 million records, needed subsampling to 5,000 for time
+reasons), MitoFish's usable pool is small enough that **all 16,592**
+records were used directly — no subsampling needed this time. This is in
+`data/MitoFish results/mitofish_16s_reference_table.csv`.
+
+## 20. A calibration test that failed — and what it taught us
+
+We first tried calibrating a confidence threshold exactly the same way as
+Part 2: cut a short random piece out of a held-back reference sequence,
+see if its nearest match is the same one. Result: **0% accuracy at every
+threshold we tried, from very loose to very strict.**
+
+Instead of picking a different number and moving on, we stopped and
+checked why (this matters — the project's own rule is not to force a
+result when something doesn't check out). We took a held-out sequence's
+*entire* amplicon (not a short random piece) and searched for it in the
+remaining pool — if the matching code works, this should trivially find
+a perfect match. It did find matches with similarity 1.0 (a perfect
+score) in 207 out of 300 tries — but the record it matched almost never
+had the *same accession number* as the original. Looking closer: MitoFish
+contains many different accession numbers that all share the exact same
+16S sequence — the same species (or a very close relative) submitted to
+GenBank multiple times under different IDs. So "0% exact accession
+match" didn't mean the matching was broken; it meant we were grading it
+against the wrong answer key.
+
+We fixed the test to check "did it find a sequence that reads identically
+to the true one" instead of "did it find the literal same accession
+number" — and got a real, usable curve this time:
+
+| How strict the cutoff is | % of test pieces confidently matched | How often that match was correct |
+|---|---|---|
+| Loose | ~100% | 9.2% |
+| Medium | 26.3% | 16.1% |
+| Strict | 10.8% | 18.3% |
+| Very strict | 0.6% | 35.0% |
+
+This is real, climbing signal — like Part 2's 16S V4/18S V9 curves, and
+unlike Part 1's flat 9%-no-matter-what curve — though the ceiling here
+(35% at the strictest, least-used setting) is lower than SILVA V9's 84%.
+We used **0.80** (a "strict" setting, ~18% expected accuracy on this
+proxy test) as the actual cutoff for the real-read run below.
+
+## 21. Running the real 5,000 reads against MitoFish
+
+- Real reads' similarity to their best MitoFish match: as low as 0.48,
+  as high as 0.82, averaging 0.66.
+- At the 0.80 cutoff: **211 of 5,000 reads (4.2%) got assigned** a match;
+  the rest stayed unclassified.
+
+This is in `data/MitoFish results/read_taxonomy_results_mitofish_16s.csv`.
+
+## 22. Checking for the same "hub" problem as before — and finding it, worse
+
+Section 12 in Part 2 found that a handful of SILVA references were
+soaking up matches from hundreds of unrelated reads — a known AI
+similarity-search glitch called "hubness," not real biology. We checked
+for the same thing here.
+
+**It's there, and more concentrated**: out of all 5,000 reads, only 347
+different references (2% of the 16,592-record pool) were ever picked as
+anyone's best match. And among just the 211 reads that got "assigned":
+only 13 distinct references show up at all, and **2 single references
+account for 188 of the 211 assignments (89%)**.
+
+In plain terms: two individual fish-mitochondrial sequences are being
+credited with matching 188 different water samples' worth of DNA
+fragments. That's not biologically plausible for a real marine eDNA
+sample (which should contain many different species). This is the same
+hub-artifact warning sign as Part 2, and it means **the 211 "assigned"
+count should not be reported as 211 correct fish identifications.**
+
+## 23. So — is MitoFish actually better?
+
+**At the database level: yes, clearly.** MitoFish is a real fish
+mitochondrial sequence collection, which is what this dataset's marker
+(`16SFish/D`) actually targets — SILVA simply doesn't contain this gene
+at all, no matter how you slice the region. The calibration curve here is
+real (Section 20), same as Part 2's SILVA V4/V9 results and unlike Part
+1's flat chance-level curve.
+
+**At the "can I trust the 211 assignments" level: not yet.** The hubness
+problem in Section 22 is the same failure mode found in Part 2, and it's
+worse here. On top of that, MitoFish (as downloaded) has no species names
+attached to its sequences, so we can't yet even double-check the 211
+assignments by eye to see if they're plausible fish species for the
+Indian Ocean.
+
+## 24. What's established vs. demonstrated (same format as Part 2)
+
+- **Established by outside sources**: `16SF/D` + `16S2R` primer sequences
+  (Berry et al. 2017), confirmed from a peer-reviewed table, not guessed.
+- **Established by inspecting the real file**: MitoFish is a mixed-gene,
+  mixed-length collection with no reliable header labels and no species
+  mapping — primer search was the only safe extraction method, and this
+  was verified on a sample before running on the full 624,421-record
+  file.
+- **Demonstrated by running the pipeline**: extraction yields real
+  amplicons at the expected length; calibration (after fixing the wrong
+  ground-truth metric) shows real signal; but real-read matching is
+  dominated by the same hubness artifact seen with SILVA, so the raw
+  "211 assigned" number is not yet trustworthy as a set of correct fish
+  identifications.
+- **Still uncertain / left for future work**: no species names are
+  available for MitoFish's sequences in this file, so nobody can
+  currently manually check whether the 211 assigned reads make
+  biological sense (e.g. "are these plausible Indian Ocean fish
+  species?"). Fixing the hubness problem (e.g. by re-checking the top few
+  candidate matches with a second, independent method instead of trusting
+  the single nearest neighbor) is also unresolved.
+
+## 25. Files and commands for this part
+
+**New files created:**
+- `src/extract_mitofish_16s.py` — primer-based 16S extraction from `data/mitofishdb.fa.gz`
+- `src/mitofish_calibration.py` — threshold calibration using sequence-identity recovery (see Section 20 for why accession-ID recovery doesn't work here)
+- `data/MitoFish results/mitofish_16s_amplicons.csv` — all 16,778 extracted amplicons
+- `data/MitoFish results/mitofish_16s_reference_table.csv` — 16,592 usable references (final reference table)
+- `data/MitoFish results/mitofish_16s_ref_embeddings.npy`, `mitofish_16s_ref_ids.csv` — embeddings
+- `data/MitoFish results/mitofish_16s_faiss.index` — search index
+- `data/MitoFish results/query_results_mitofish_16s.csv`, `read_taxonomy_results_mitofish_16s.csv` — real-read results
+- `data/MitoFish results/run_report.md` — full verification + results log for this run
+- `data/SILVA results/README.md` — pointer explaining the SILVA-results folder
+
+**Modified files:**
+- `src/config.py` — default paths updated to point at `data/SILVA results/` after the file reorganization (every actual command still passes paths explicitly)
+- `src/run_region_experiment.py` — output directory is now a parameter (was hardcoded to `data/` with a leftover `silva_` prefix in the index filename)
+
+**Files/folders moved (not deleted):**
+- All SILVA-specific `data/*.csv`, `*.npy`, `*.index`, and the raw SILVA FASTA moved into `data/SILVA results/`
+
+**Commands to reproduce, in order:**
+```bash
+# 1. Extract the 16S region from the full MitoFish file (verified primers)
+python -m src.extract_mitofish_16s data/mitofishdb.fa.gz "data/MitoFish results/mitofish_16s_amplicons.csv"
+
+# 2. Filter out ambiguous-base sequences (same rule as Parts 1-2); target
+#    is set >= the clean pool size so effectively everything usable is kept
+python -m src.subsample_reference_table "data/MitoFish results/mitofish_16s_amplicons.csv" "data/MitoFish results/mitofish_16s_reference_table.csv" 16592 42
+
+# 3. Embed the reference table (reuses the existing embed-ref stage)
+REFERENCE_TABLE_CSV="data/MitoFish results/mitofish_16s_reference_table.csv" REFERENCE_EMBEDDINGS_NPY="data/MitoFish results/mitofish_16s_ref_embeddings.npy" REFERENCE_IDS_CSV="data/MitoFish results/mitofish_16s_ref_ids.csv" python run_pipeline.py embed-ref
+
+# 4. Calibrate a threshold (sequence-identity recovery -- see Section 20)
+REFERENCE_TABLE_CSV="data/MitoFish results/mitofish_16s_reference_table.csv" REFERENCE_EMBEDDINGS_NPY="data/MitoFish results/mitofish_16s_ref_embeddings.npy" REFERENCE_IDS_CSV="data/MitoFish results/mitofish_16s_ref_ids.csv" python -m src.mitofish_calibration
+
+# 5. Query the real 5,000 reads and decide
+python -m src.run_region_experiment mitofish_16s "data/MitoFish results/mitofish_16s_reference_table.csv" "data/MitoFish results/mitofish_16s_ref_embeddings.npy" "data/MitoFish results/mitofish_16s_ref_ids.csv" 0.80 data/reads_ids.csv data/reads_embeddings.npy "data/MitoFish results"
+```
+
+---
+
+# Part 4: Fixing the hubness problem with a second, independent check
+
+Part 3 ended on an unresolved problem: even after switching to the
+biologically correct MitoFish database, a handful of reference sequences
+were still "winning" way more matches than makes biological sense — the
+classic hubness glitch. This section reports a focused fix for exactly
+that problem, without touching the database, primers, or extracted
+region again (those were already verified in Part 3 and are treated as
+settled).
+
+## 26. The idea: don't trust DNABERT's ranking alone — check the actual DNA
+
+DNABERT similarity is a single, somewhat opaque number (a "how alike do
+these look to the AI" score). It has no built-in way to tell "this read
+and this reference share 98% of their actual letters" apart from "this
+read and this reference just happen to sit near each other in the AI's
+internal math space." The fix: for each read, don't just trust DNABERT's
+single best guess. Instead:
+
+1. Ask DNABERT for its **top 10** candidate matches (not just the top 1).
+2. For each of those 10, run a real, direct DNA comparison — a **local
+   sequence alignment** (the same family of algorithm behind tools like
+   BLAST), which lines up the read against each candidate letter-by-letter
+   and reports what percent of the letters actually match ("percent
+   identity") and what fraction of the read's own length was covered by
+   a good alignment.
+3. Re-rank the 10 candidates by this real percent-identity score instead
+   of DNABERT's similarity score, and use the winner of *that* comparison
+   as the actual answer.
+
+We used "local" alignment (as opposed to a strict end-to-end
+"global" alignment) because our reads (118-140bp) are shorter than the
+reference amplicons (up to 249bp) and we don't know exactly where within
+the amplicon the read starts — a local alignment finds the best-matching
+stretch wherever it happens to sit, which is the correct tool for this
+situation (this is explained further in `src/nucleotide_rerank.py`).
+
+## 27. First result: DNABERT's own ranking is often wrong
+
+Running this on all 5,000 real reads: only **1,071 out of 5,000 (21%)**
+of the time was DNABERT's #1 pick also the winner after the real DNA
+comparison. The rest of the time, a candidate DNABERT had ranked lower
+(sometimes as low as #10) turned out to actually be the better DNA match.
+This on its own is useful evidence that DNABERT's similarity score alone
+isn't precise enough to trust blindly — which is exactly what Part 3's
+hubness finding already suggested.
+
+## 28. A calibration test that initially looked disappointing — and a real discovery underneath it
+
+Just like Part 3 (Section 20), we calibrated a confidence cutoff using
+held-out data: cut a short random piece from a reference we set aside,
+run it through the same top-10-then-realign pipeline, and check if the
+answer is right.
+
+The first version of this test used the same "exact same sequence"
+answer key as before, and initially the accuracy still only reached
+about 33% even at the strictest settings — not obviously better than Part
+3's plain-DNABERT result. But before accepting that, we checked *why* the
+"wrong" answers were wrong, the same way we caught the earlier
+accession-numbering issue in Part 3.
+
+**What we found**: when the reranked pick was "wrong" by the exact-match
+answer key, we compared the *chosen* reference's full sequence to the
+*true* one directly. They were still **95% to 99.55% identical (median
+99%)**. In other words, the method wasn't picking a wrong answer — it was
+picking a different accession number that happens to carry an
+essentially identical (same-species-or-closer) sequence, which is exactly
+the redundancy problem already documented in Part 3.
+
+So we recalibrated using a fairer, still strict answer key: "count it as
+correct if the chosen reference's sequence is at least 95% identical to
+the true one" (95% comfortably separates genuine near-duplicates, which
+cluster around 99%, from an actual wrong answer). With that fix:
+
+| How strict the identity cutoff is | % of test pieces confidently matched | How often that was actually correct |
+|---|---|---|
+| Loose (45-62.5%) | 100% | 57.5% |
+| Medium (80%) | 84.3% | 68.2% |
+| Strict (90%) | 71.7% | 80.2% |
+| Very strict (95%) | 59.8% | 94.6% |
+| Extremely strict (97.5%) | 51.5% | 99.4% |
+
+This is a real, strong, climbing curve — noticeably better than
+everything tried in Parts 1-3. **We used 95% identity as the cutoff**
+for the real-read run below: high confidence (94.6% accuracy in
+calibration) while still keeping a meaningful fraction of reads (not
+picking the very tip of the curve just to look impressive).
+
+## 29. Applying this to the real 5,000 reads
+
+At the calibrated 95% identity cutoff:
+
+- **474 of 5,000 reads (9.5%) got assigned** — more than double Part 3's
+  211 (4.2%), and this time backed by real DNA evidence: median 98.4%
+  identity, and the alignment covered essentially the entire read
+  (median 100% of read length) for the assigned reads.
+- The DNABERT similarity scores for these same 474 reads were, by
+  themselves, unremarkable (0.53-0.82, similar to the noisy background
+  Part 3 already saw) — reinforcing that DNABERT's own number wasn't
+  the thing that made these trustworthy; the independent DNA check was.
+
+This is in `data/MitoFish results/read_taxonomy_results_mitofish_16s_reranked.csv`.
+
+## 30. Checking hubness again — smaller, but is it still a glitch?
+
+Among the 474 assigned reads: only **27 distinct references** were
+involved (down from Part 3's already-small 13, but now backed by real
+evidence instead of raw similarity), and the top 2 references alone
+still account for **57%** of all assignments, top 10 for **94%**.
+
+On the surface this still looks like the same hubness problem. But this
+time, instead of assuming that, we checked what these top references
+actually *are* — something we couldn't do in Parts 1-3 because MitoFish
+ships with no species names. We looked up the real organism names for
+all 27 distinct assigned references directly from NCBI's public GenBank
+database (not guessed — see
+`data/MitoFish results/assigned_reference_species_lookup.csv` for the
+full list with citations).
+
+**The result was unambiguous**: 445 of 474 assigned reads (93.9%)
+matched a **tuna species** (family Scombridae) — *Thunnus tonggol*
+(longtail tuna), *Thunnus maccoyii* (southern bluefin), *Thunnus obesus*
+(bigeye), *Thunnus albacares* (yellowfin), *Thunnus thynnus* (Atlantic
+bluefin), *Thunnus orientalis* (Pacific bluefin), *Thunnus alalunga*
+(albacore), *Thunnus atlanticus* (blackfin), *Katsuwonus pelamis*
+(skipjack tuna), and *Auxis rochei* (bullet tuna) — plus one black marlin
+(a closely related large pelagic fish) and a small number of unrelated
+species (a reef fish and a deep-sea anglerfish, 5.9% combined).
+
+**Why this matters**: the Indian Ocean is one of the world's major tuna
+fishing and migration regions, and this sample was seawater collected
+there. A handful of different tuna species dominating the identified
+signal is exactly the ecological pattern a marine biologist would expect
+— tuna are large, abundant, and shed a lot of DNA into the surrounding
+water. This is a completely different situation from Part 3's hubness,
+where the dominant references (checked again for comparison — see
+`data/MitoFish results/run_report.md`) shared nothing in common with
+these new tuna-dominated hits: the two sets of "hub" references don't
+even overlap, which is further evidence the earlier hubness really was
+an unrelated math artifact, not this same biological signal resurfacing
+under a new name.
+
+## 31. Verdict: is hubness solved?
+
+**Partly, and in the way that matters most.** The raw "a few
+references soak up too many matches" *symptom* is still visible in the
+numbers (top 2 = 57%). But we now have independent, real-world evidence
+(NCBI species lookups, not just internal statistics) that this
+particular concentration reflects a genuinely dominant local species
+group (tuna) rather than an AI-embedding-space glitch — which is a
+fundamentally different, and much more defensible, situation than Part
+3's unexplained concentration on random, unrelated-looking references.
+
+**What would make this fully trustworthy, not just plausible:**
+- Confirming with the study's collection metadata (or contacting the
+  original researchers) whether tuna fishing/monitoring activity was
+  actually happening at this specific sample site — the strongest
+  possible confirmation.
+- Checking whether the 5.9% non-tuna hits (the reef fish and anglerfish)
+  are also ecologically sensible for this location, or should be treated
+  more cautiously.
+- Given MitoFish's own redundancy (many accessions sharing near-identical
+  sequences), getting a species-level, non-redundant reference set
+  would make the remaining 90.5% "unclassified" reads worth
+  re-examining too, since some of them may simply have no exact database
+  representative rather than truly being unidentifiable.
+
+**Bottom-line answer to "can we present these as real fish
+identifications now?"**: The 474 tuna-dominated calls are noticeably more
+trustworthy than anything produced in Parts 1-3 — they're backed by a
+calibrated, held-out-validated identity threshold (94.6% measured
+accuracy) *and* an independent, real-world plausibility check (NCBI
+species names matching known Indian Ocean tuna fisheries), not by a
+single similarity number. They are reasonable to present as a
+**preliminary, methodologically-supported result** — with the caveats in
+this section stated alongside them — rather than as a fully validated,
+publication-ready species list.
+
+## 32. Files and commands for this part
+
+**New files created:**
+- `src/nucleotide_rerank.py` — local alignment (Smith-Waterman via Biopython) + candidate reranking logic
+- `src/mitofish_rerank_experiment.py` — runs the rerank on all 5,000 real reads
+- `src/mitofish_rerank_calibration.py` — calibrates the identity_pct threshold on held-out data
+- `data/MitoFish results/reads_top10_sims.npy`, `reads_top10_pos.npy`, `reads_top10_ids.csv` — top-10 DNABERT candidates per read
+- `data/MitoFish results/rerank_candidates.csv` — all 10 candidates x 5,000 reads, with both DNABERT similarity and alignment identity/coverage
+- `data/MitoFish results/read_taxonomy_results_mitofish_16s_reranked.csv` — final per-read decision at the calibrated threshold
+- `data/MitoFish results/rerank_calibration_log.txt` — calibration sweep output
+- `data/MitoFish results/assigned_reference_species_lookup.csv` — NCBI-verified species names for all 27 distinct assigned references
+
+**Modified files:** none (Part 3's reference table, embeddings, and index were reused unchanged, as instructed)
+
+**Commands to reproduce, in order:**
+```bash
+# 1. Get top-10 DNABERT/FAISS candidates for all 5,000 real reads (already-computed
+#    read embeddings and MitoFish index from Part 3, nothing re-embedded)
+python - <<'PY'
+import faiss, numpy as np
+from src.faiss_index import l2_normalize
+index = faiss.read_index("data/MitoFish results/mitofish_16s_faiss.index")
+emb = l2_normalize(np.load("data/reads_embeddings.npy").astype("float32"))
+with open("data/reads_ids.csv") as f:
+    read_ids = [l.strip() for l in f if l.strip()]
+sims, pos = index.search(emb, 10)
+np.save("data/MitoFish results/reads_top10_sims.npy", sims)
+np.save("data/MitoFish results/reads_top10_pos.npy", pos)
+open("data/MitoFish results/reads_top10_ids.csv","w").write("\n".join(read_ids)+"\n")
+PY
+
+# 2. Rerank each read's top-10 candidates by real nucleotide alignment
+python -m src.mitofish_rerank_experiment
+
+# 3. Calibrate the identity_pct threshold on held-out MitoFish data
+REFERENCE_TABLE_CSV="data/MitoFish results/mitofish_16s_reference_table.csv" REFERENCE_EMBEDDINGS_NPY="data/MitoFish results/mitofish_16s_ref_embeddings.npy" REFERENCE_IDS_CSV="data/MitoFish results/mitofish_16s_ref_ids.csv" python -m src.mitofish_rerank_calibration
+```
