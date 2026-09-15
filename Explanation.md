@@ -911,3 +911,87 @@ index = PipelineIndex.build(
 )
 results = assign_batch(read_ids, read_seqs, index, fetch_species_names=True)
 ```
+
+---
+
+# Part 6: Testing a second open-source model — Nucleotide Transformer v2
+
+Prompted by the professor's "open-source LLM models for retrieval" /
+"comparison of models" / "which classifies DNA better" next steps. Goal:
+test whether swapping the embedding model improves on DNABERT-S, using a
+real measurement rather than assuming either model is better.
+
+## 37. Model chosen, and why
+
+`InstaDeepAI/nucleotide-transformer-v2-50m-multi-species` (50M
+parameters). Picked over DNABERT-2 and HyenaDNA specifically for
+**feasibility on this machine**: it uses a standard `transformers`
+architecture with no `triton`/`flash-attn`/custom-CUDA-kernel dependency
+-- the exact thing that already blocked `zhihan1996/DNABERT-S` from
+loading on this Windows/CPU setup (see the README's Setup section).
+Published in *Nature Methods* (de Almeida et al., 2024) with broad
+benchmark validation across genomic tasks, and multi-species pretraining
+fits an eDNA use case better than a human-genome-only model.
+
+**Feasibility verified before any large-scale run**, not assumed: Python
+3.10, `transformers` 4.56.2, `torch` 2.13.0 (CPU build), 16 CPU cores,
+125GB RAM, 258GB free disk, reachable HuggingFace endpoint, and the
+model's `modeling_esm.py` inspected directly -- confirmed plain PyTorch
+only, no exotic kernel imports. A 64-sequence timing benchmark
+(19.5ms/sequence) gave an estimated ~7-8 minutes for the full comparison
+job (references + holdout fragments), which the actual run matched.
+
+## 38. What was compared, and how
+
+`src/nt_embed.py` -- a new, fully isolated embedding module (mean-pooled
+final hidden layer, same pooling strategy as `embed_common.py`'s DNABERT
+path, for a fair comparison). Nothing in `embed_common.py`, `config.py`,
+or any frozen Part 3/4 artifact was touched.
+
+`src/nt_diagnostics.py` reuses `stage0_diagnostics.build_holdout_split()`
+UNMODIFIED -- same seed=42, same 1,000 held-out MitoFish fragments, same
+>=95% full-sequence-identity ground truth (`nucleotide_rerank.align_pair`,
+frozen) already used for DNABERT's own Recall@K numbers. This guarantees
+the two models are compared on the *identical* test set, not a
+re-sampled, potentially easier or harder one.
+
+## 39. Result: DNABERT-S wins clearly
+
+| Metric (n=1,000 held-out fragments) | DNABERT-S (existing, frozen) | Nucleotide Transformer v2 50M (new) |
+|---|---|---|
+| Recall@1 | 41.7% | 15.3% |
+| Recall@5 | 53.3% | 20.1% |
+| Recall@10 | 58.2% | 22.3% |
+| Absent from top-10 | 41.8% | 77.7% |
+
+**Why**: DNABERT-S was purpose-trained for species differentiation (its
+own paper: "Pioneering Species Differentiation with Species-Aware DNA
+Embeddings") -- exactly this task. Nucleotide Transformer was trained
+more generally (masked-language-modeling across genomic sequences, not a
+species-contrastive objective), so it underperforms here specifically,
+not universally -- it may well be competitive on a task it was actually
+built for (e.g. promoter/splicing prediction).
+
+## 40. Decision: not adopted
+
+`final_pipeline.py`, BM25, MMR, and the frozen nucleotide reranker are
+**unchanged**. Since Nucleotide Transformer lost decisively on the exact
+task this project needs (species-level retrieval), there is no basis for
+carrying it into items 3/4 of the roadmap (BM25 + best-model + MMR). This
+is treated as a completed, honest negative result, not a dead end: it
+answers "did we check" with real evidence rather than an assumption.
+
+## 41. Files and commands for this part
+
+**New files:** `src/nt_embed.py`, `src/nt_diagnostics.py`,
+`data/NT diagnostics/nt_recall_summary.txt`,
+`data/NT diagnostics/nt_train_embeddings.npy`,
+`data/NT diagnostics/nt_train_ids.csv`.
+
+**Modified:** none of the existing pipeline, model config, or frozen
+artifacts.
+
+**Reproduce:**
+```bash
+python -m src.nt_diagnostics   # ~7-8 min on CPU, no GPU required
+```

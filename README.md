@@ -191,11 +191,31 @@ logic, not model output.
 | `src/final_pipeline.py` | production pipeline: BM25 → MMR → nucleotide reranker → tiered confidence decision |
 | `src/species_lookup.py` | NCBI accession → species name lookup, disk-cached |
 | `src/final_evaluation.py` | Task 4 A/B/C/D architecture comparison (`data/Final diagnostics/`) |
+| `src/nt_embed.py` | Nucleotide Transformer v2 (50M, multi-species) embedding — isolated, second model |
+| `src/nt_diagnostics.py` | DNABERT vs Nucleotide Transformer Recall@K comparison (`data/NT diagnostics/`) |
 
-## Roadmap (professor's next steps, tracked in `Explanation.md` Part 5)
+## Model comparison: DNABERT-S vs Nucleotide Transformer v2 (50M)
 
-1. Open-source LLM models for retrieval — comparison of models — which classifies DNA better — **not started**
-2. BM25 with other models — **not started** (depends on 1)
-3. Best model + BM25 + MMR + change DNA sequencing — **not started** (depends on 1)
+Tested whether an open-source model swap improves retrieval (professor's
+"open-source LLM models for retrieval" / "comparison of models" next
+steps). Full writeup and technical-requirement analysis: **`DNABERT-S vs
+Nucleotide Comparison.docx`** (project root). Short version:
+
+| Metric (Recall@K, identical 1,000 held-out fragments) | DNABERT-S (existing) | Nucleotide Transformer v2 50M |
+|---|---|---|
+| Recall@1 | 41.7% | 15.3% |
+| Recall@5 | 53.3% | 20.1% |
+| Recall@10 | 58.2% | 22.3% |
+
+**Result: DNABERT-S wins clearly.** Nucleotide Transformer is a general-purpose
+DNA model; DNABERT-S was purpose-trained for species differentiation, which is
+exactly this task. Not adopted — `final_pipeline.py` is unchanged. Reproduce
+with `python -m src.nt_diagnostics` (~7-8 min on CPU, no GPU required).
+
+## Roadmap (professor's next steps, tracked in `Explanation.md` Part 5/6)
+
+1. Open-source LLM models for retrieval — comparison of models — which classifies DNA better — **done**, Nucleotide Transformer tested and rejected (see above / `Explanation.md` Part 6)
+2. BM25 with other models — **not started** (only one alternative model tried so far, and it underperformed — see above)
+3. Best model + BM25 + MMR + change DNA sequencing — **not started** (no alternative model has beaten DNABERT-S yet)
 4. Extend beyond fish to other species — **not started**
 5. Unknown DNA → match to most similar, with species names, tiered by confidence — **done**, see Part 5 of `Explanation.md`
