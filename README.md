@@ -179,3 +179,23 @@ logic, not model output.
 | `src/cluster_annotation.py` | cluster validation — purity/ARI/NMI of existing HDBSCAN clusters vs. SILVA |
 | `src/evaluate.py` | Stage 12 — threshold sweep + metrics |
 | `run_pipeline.py` | CLI to run each stage |
+
+### Final architecture (post Part 4, see `Explanation.md` Parts 3–5)
+
+| File | Role |
+|---|---|
+| `src/bm25_retrieval.py` | BM25 (k-mer) lexical retrieval index |
+| `src/mmr.py` | MMR candidate-set diversification |
+| `src/rrf_fusion.py` | RRF fusion (kept for the record; excluded from production — see Part 4/5) |
+| `src/nucleotide_rerank.py` | frozen Smith-Waterman nucleotide reranker |
+| `src/final_pipeline.py` | production pipeline: BM25 → MMR → nucleotide reranker → tiered confidence decision |
+| `src/species_lookup.py` | NCBI accession → species name lookup, disk-cached |
+| `src/final_evaluation.py` | Task 4 A/B/C/D architecture comparison (`data/Final diagnostics/`) |
+
+## Roadmap (professor's next steps, tracked in `Explanation.md` Part 5)
+
+1. Open-source LLM models for retrieval — comparison of models — which classifies DNA better — **not started**
+2. BM25 with other models — **not started** (depends on 1)
+3. Best model + BM25 + MMR + change DNA sequencing — **not started** (depends on 1)
+4. Extend beyond fish to other species — **not started**
+5. Unknown DNA → match to most similar, with species names, tiered by confidence — **done**, see Part 5 of `Explanation.md`

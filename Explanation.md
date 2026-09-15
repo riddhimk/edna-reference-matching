@@ -860,3 +860,54 @@ python -m src.mitofish_rerank_experiment
 # 3. Calibrate the identity_pct threshold on held-out MitoFish data
 REFERENCE_TABLE_CSV="data/MitoFish results/mitofish_16s_reference_table.csv" REFERENCE_EMBEDDINGS_NPY="data/MitoFish results/mitofish_16s_ref_embeddings.npy" REFERENCE_IDS_CSV="data/MitoFish results/mitofish_16s_ref_ids.csv" python -m src.mitofish_rerank_calibration
 ```
+
+---
+
+# Part 5: Open-set handling — reporting a best guess instead of silence, with real species names
+
+Prompted by the professor's next-steps list, specifically: *"after all that, go for unknown DNA → match to most similar."* This section covers what changed in `src/final_pipeline.py` (the production BM25 → MMR → nucleotide-reranker pipeline from Part 4/Task 4) and adds a new module, `src/species_lookup.py`. Nothing about the database, primers, extracted region, BM25/MMR parameters, or the frozen nucleotide reranker was touched — this is purely about what gets reported for a read that doesn't clear the confidence bar.
+
+## 33. The problem this solves
+
+Before this change, `assign()` only ever returned two outcomes: `"assigned"` (identity ≥95%, Part 4's calibrated bar) or `"unclassified"` — and `"unclassified"` reads got a **blank** nearest-reference field, even though the pipeline had already computed a nearest match and its identity score internally. A read that was 93% identical to a known sequence — genuinely close — was reported exactly the same as a read that was 52% identical to anything — essentially unrelated. That's throwing away real, differentiated evidence.
+
+## 34. What changed: three confidence tiers instead of two
+
+`Confidence_Decision` is now one of:
+
+| Tier | identity_pct | Meaning |
+|---|---|---|
+| `assigned` | ≥ 95% | unchanged — Part 4's calibrated, trustworthy bar |
+| `best_guess` | 75–95% | a real, fairly close lead — worth reporting as a candidate identification, not a confirmed one |
+| `best_guess_low_confidence` | < 75% | the nearest thing found, but weak — reported so "closest known relative" is never silently discarded, explicitly flagged as unreliable |
+| `unclassified` | — | no BM25 candidate at all (the read shares no k-mers with any reference) — nothing to report a nearest match for |
+
+**Important honesty note**: the 75% split is *not* a recalibrated, held-out-validated threshold the way the 95% bar is (that one came from Part 4's calibration curve). It only controls the *label* attached to reads that already fail the 95% bar — it doesn't change which reads get assigned, and the underlying `identity_pct` number is always present in the output regardless of tier, so nothing is hidden by the label.
+
+**Real-read check** (first 15 reads of `ERR16922870`, MitoFish 16S index): 5 of 15 landed `assigned` (97.5–100% identity, all tuna or footballfish — ecologically plausible), 1 landed `best_guess` (93.5%), and 9 landed `best_guess_low_confidence` (52–71% identity, matched to a scattered, unrelated mix of deep-sea species — exactly what a weak/noise match should look like). This distinction — strong pattern vs. scattered noise — was invisible under the old binary scheme.
+
+## 35. Species names instead of accession codes
+
+MitoFish ships with no species names at all — every reference is a bare accession like `AY920478` (established in Part 3, Section 17c). Part 4 solved this once, by hand, for its own 27 specific assigned references (`assigned_reference_species_lookup.csv`). That doesn't cover new accessions surfaced by the current BM25→MMR pipeline.
+
+`src/species_lookup.fetch_organism_names()` looks up real organism names from NCBI's public Entrez `esummary` API (the same public database Part 3 used for its one-off lookup), for any list of accession IDs, and caches results to `data/species_name_cache.csv` so repeat runs never re-hit the network for an accession already seen. A network failure degrades gracefully — cached names still resolve, and unresolved accessions come back as `""` rather than crashing the run. `assign_batch(..., fetch_species_names=True)` adds a `Species` column using this; it's off by default so the core pipeline and its tests stay fully offline.
+
+## 36. Files and commands for this part
+
+**New file:** `src/species_lookup.py` — NCBI accession → species name, disk-cached.
+
+**Modified:** `src/final_pipeline.py` — three-tier `Confidence_Decision`, optional `fetch_species_names` in `assign_batch`.
+
+**New tests:** `tests/test_species_lookup.py` (cache hit/miss/network-failure, all mocked — no network in CI), plus two new cases in `tests/test_final_pipeline.py` covering the `best_guess` and `best_guess_low_confidence` tiers. Full suite: 75/75 passing.
+
+**To reproduce the real-read check above:**
+```python
+from src.final_pipeline import PipelineIndex, assign_batch
+
+index = PipelineIndex.build(
+    "data/MitoFish results/mitofish_16s_reference_table.csv",
+    "data/MitoFish results/mitofish_16s_ref_embeddings.npy",
+    "data/MitoFish results/mitofish_16s_ref_ids.csv",
+)
+results = assign_batch(read_ids, read_seqs, index, fetch_species_names=True)
+```
