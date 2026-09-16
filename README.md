@@ -196,6 +196,7 @@ logic, not model output.
 | `src/hyenadna_embed.py` | HyenaDNA-tiny embedding — isolated model |
 | `src/genalm_embed.py` | GENA-LM (bert-base-t2t) embedding — isolated model |
 | `src/multi_model_diagnostics.py` | DNABERT vs HyenaDNA-tiny vs GENA-LM Recall@K comparison (`data/HyenaDNA diagnostics/`, `data/GENA-LM diagnostics/`) |
+| `src/other_kingdom_diagnostics.py` | Production architecture (BM25→MMR→reranker) validated on Bacteria/Archaea (16S V4) and Eukaryota (18S V9) held-out data (`data/Other Kingdoms diagnostics/`) |
 
 ## Model comparison: DNABERT-S vs 3 open-source alternatives
 
@@ -222,10 +223,33 @@ remains the model of choice for this project.** Not adopted —
 src.nt_diagnostics` and `python -m src.multi_model_diagnostics` (~20 min
 combined on CPU, no GPU required).
 
-## Roadmap (professor's next steps, tracked in `Explanation.md` Part 5/6/7)
+## Architecture validation beyond fish: Bacteria/Archaea and Eukaryota
+
+Tested whether the production architecture (BM25 → MMR → nucleotide
+reranker → tiered decision) generalizes beyond fish (professor's "other
+species than fish" next step), reusing the SILVA-derived Bacteria/Archaea
+(16S V4) and Eukaryota (18S V9) reference sets Part 2 already built — no
+new datasets needed. **Scope note: held-out synthetic-fragment
+validation, not real-read classification** — this project has no real
+bacterial/archaeal/eukaryotic eDNA reads (only the fish-marker
+`ERR16922870` reads exist, and Part 2 already established those aren't
+16S/18S at all).
+
+| Metric (n held-out fragments) | Fish / MitoFish (Part 4/5) | Bacteria/Archaea 16S V4 | Eukaryota 18S V9 |
+|---|---|---|---|
+| Recall@10 | 94.6% | 82.0% | 70.5% |
+| % assigned | 94.8% | 81.4% | 69.5% |
+| Accuracy on assigned | 98.7% | 97.7% | 99.7% |
+
+**Result: the architecture generalizes well.** Accuracy on assigned reads
+stays ≥97.7% across all three kingdoms — the same BM25→MMR→reranker
+design works without kingdom-specific tuning. Reproduce with `python -m
+src.other_kingdom_diagnostics` (~2-3 min on CPU).
+
+## Roadmap (professor's next steps, tracked in `Explanation.md` Part 5/6/7/8)
 
 1. Open-source LLM models for retrieval — comparison of models — which classifies DNA better — **done**, 3 alternatives tested and rejected, DNABERT-S confirmed best (see above / `Explanation.md` Parts 6-7)
 2. BM25 with other models — **not started** (only one alternative model tried so far, and it underperformed — see above)
 3. Best model + BM25 + MMR + change DNA sequencing — **not started** (no alternative model has beaten DNABERT-S yet)
-4. Extend beyond fish to other species — **not started**
+4. Extend beyond fish to other species — **done**, architecture validated on Bacteria/Archaea and Eukaryota (see above / `Explanation.md` Part 8) — real-read data for these kingdoms is still future work
 5. Unknown DNA → match to most similar, with species names, tiered by confidence — **done**, see Part 5 of `Explanation.md`

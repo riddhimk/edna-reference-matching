@@ -1108,3 +1108,109 @@ artifacts.
 ```bash
 python -m src.multi_model_diagnostics   # ~13 min on CPU, no GPU required
 ```
+
+---
+
+# Part 8: Validating the architecture beyond fish
+
+Prompted by the professor's "when you get accurate results, see other
+species other than fish" next-steps item. Goal: test whether the
+production architecture (BM25 -> MMR -> nucleotide reranker -> tiered
+confidence decision, `src/final_pipeline.py`) generalizes to kingdoms
+other than fish, without sourcing brand-new datasets when suitable ones
+already exist in the project.
+
+## 47. Data source, and why no new download was needed
+
+Part 2 (Sections 9-10) already downloaded the full SILVA database (2.2M
+sequences), verified real published primer pairs (515F/806R for
+bacterial/archaeal 16S V4, 1391F/EukBr for eukaryotic 18S V9) via
+literature search, and extracted amplicon regions from SILVA using
+primer-based in-silico PCR (not arbitrary truncation) -- producing
+`data/SILVA results/silva_16s_v4_sample.csv` (5,000 Bacteria/Archaea
+references) and `silva_18s_v9_sample.csv` (5,000 Eukaryota references),
+plus their DNABERT embeddings. These are genuinely different kingdoms
+from fish (Chordata), sitting unused since Part 2 -- Parts 3/4's
+BM25/MMR/nucleotide-reranker architecture was only ever built and tested
+against MitoFish (fish) afterward. Reusing this existing, already-verified
+data avoided repeating Part 2/3's full dataset-sourcing effort (finding a
+database, verifying primers, running in-silico PCR, checking against real
+metadata) for what would otherwise be a multi-day task.
+
+## 48. Important scope limitation, stated up front
+
+There is **no real bacterial/archaeal or eukaryotic eDNA read data** in
+this project -- only the fish-marker `ERR16922870` reads exist, and Part
+2 (Section 8) already established via ENA metadata that those reads are
+neither 16S nor 18S at all (they're a fish mitochondrial marker SILVA
+doesn't cover). This section is therefore a **held-out synthetic-fragment
+validation** of the architecture -- the same rigor Stage 0-4 used to
+validate it for fish before any real read was queried -- not a
+real-read classification run. Results here answer "does this
+architecture generalize," not "here are real bacterial/eukaryotic
+species identifications."
+
+## 49. Method
+
+`src/other_kingdom_diagnostics.py` generalizes
+`stage0_diagnostics.build_holdout_split`'s exact methodology (seed=42,
+80/20 train/holdout split, 1,000 synthetic 118-140bp fragments cut from
+held-out references) to accept any reference table + embeddings instead
+of MitoFish specifically, then runs the FROZEN, unmodified
+`BM25Index`, `mmr_select`, and `rerank_candidates` with final_pipeline.py's
+exact production hyperparameters (BM25 k=6, MMR pool=30/lambda=0.5,
+top-10, 95%/75% tiered decision) against each kingdom's held-out split.
+
+## 50. Result: the architecture generalizes well
+
+| Metric (held-out fragments) | Fish / MitoFish (Part 4/5) | Bacteria/Archaea 16S V4 | Eukaryota 18S V9 |
+|---|---|---|---|
+| n_holdout_fragments | 1000 | 1000 | 505* |
+| Recall@1 | 93.7% | 79.9% | 68.5% |
+| Recall@10 | 94.6% | 82.0% | 70.5% |
+| % assigned (>=95% identity) | 94.8% | 81.4% | 69.5% |
+| Accuracy on assigned | 98.7% | 97.7% | 99.7% |
+| % best_guess (75-95%) | -- | 18.4% | 27.7% |
+| % best_guess_low_confidence (<75%) | -- | 0.2% | 2.8% |
+
+*Eukaryota 18S V9 has fewer holdout fragments than requested (505 of
+1,000) because many held-out 18S V9 amplicons are shorter than the
+118-140bp fragment-length range (Part 2, Section 10: this SILVA file's
+18S V9 extraction averages only 127bp, near the fragment-length floor),
+so fewer references are long enough to cut a fragment from -- a data
+characteristic, not a bug.
+
+**Accuracy on assigned reads stays >=97.7% across all three kingdoms** --
+the architecture was built and tuned entirely on fish/MitoFish data, yet
+transfers to two unrelated kingdoms without any kingdom-specific
+retuning of BM25's k-mer size, MMR's lambda, or the 95%/75% decision
+thresholds. Recall and % assigned are lower for Bacteria/Archaea and
+Eukaryota than for fish, which is expected: SILVA's V4/V9 regions are
+shorter and the reference sets are broader/more diverse subsamples of a
+2.2M-sequence database, versus MitoFish's more targeted single-marker
+collection.
+
+## 51. Decision and what remains open
+
+The architecture is validated as kingdom-agnostic at the retrieval/
+decision level. What's still open, honestly: no real bacterial/archaeal/
+eukaryotic eDNA sample has been run through it (Section 48) -- doing that
+would require sourcing a real amplicon-sequencing dataset for one of
+these kingdoms, the same kind of real-world verification Part 3 did for
+MitoFish. That is future work, not claimed here.
+
+## 52. Files and commands for this part
+
+**New file:** `src/other_kingdom_diagnostics.py`,
+`data/Other Kingdoms diagnostics/Bacteria_Archaea_16S_V4/summary.txt`,
+`data/Other Kingdoms diagnostics/Eukaryota_18S_V9/summary.txt` (+
+per-fragment CSVs for each).
+
+**Modified:** none of the existing pipeline, model config, or frozen
+artifacts. `final_pipeline.py`'s hyperparameters are imported and reused,
+not duplicated by value.
+
+**Reproduce:**
+```bash
+python -m src.other_kingdom_diagnostics   # ~2-3 min on CPU
+```
