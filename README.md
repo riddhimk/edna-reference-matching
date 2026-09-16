@@ -191,30 +191,40 @@ logic, not model output.
 | `src/final_pipeline.py` | production pipeline: BM25 → MMR → nucleotide reranker → tiered confidence decision |
 | `src/species_lookup.py` | NCBI accession → species name lookup, disk-cached |
 | `src/final_evaluation.py` | Task 4 A/B/C/D architecture comparison (`data/Final diagnostics/`) |
-| `src/nt_embed.py` | Nucleotide Transformer v2 (50M, multi-species) embedding — isolated, second model |
+| `src/nt_embed.py` | Nucleotide Transformer v2 (50M, multi-species) embedding — isolated model |
 | `src/nt_diagnostics.py` | DNABERT vs Nucleotide Transformer Recall@K comparison (`data/NT diagnostics/`) |
+| `src/hyenadna_embed.py` | HyenaDNA-tiny embedding — isolated model |
+| `src/genalm_embed.py` | GENA-LM (bert-base-t2t) embedding — isolated model |
+| `src/multi_model_diagnostics.py` | DNABERT vs HyenaDNA-tiny vs GENA-LM Recall@K comparison (`data/HyenaDNA diagnostics/`, `data/GENA-LM diagnostics/`) |
 
-## Model comparison: DNABERT-S vs Nucleotide Transformer v2 (50M)
+## Model comparison: DNABERT-S vs 3 open-source alternatives
 
 Tested whether an open-source model swap improves retrieval (professor's
-"open-source LLM models for retrieval" / "comparison of models" next
-steps). Full writeup and technical-requirement analysis: **`DNABERT-S vs
-Nucleotide Comparison.docx`** (project root). Short version:
+"open-source LLM models for retrieval" / "comparison of models" / "which
+classifies DNA better" next steps). Full writeup and technical-requirement
+analysis: **`DNABERT-S vs Open-Source Model Comparison.docx`** (project
+root). Short version — all four tested on the identical 1,000 held-out
+fragments:
 
-| Metric (Recall@K, identical 1,000 held-out fragments) | DNABERT-S (existing) | Nucleotide Transformer v2 50M |
-|---|---|---|
-| Recall@1 | 41.7% | 15.3% |
-| Recall@5 | 53.3% | 20.1% |
-| Recall@10 | 58.2% | 22.3% |
+| Metric | DNABERT-S (existing) | Nucleotide Transformer v2 50M | HyenaDNA-tiny | GENA-LM |
+|---|---|---|---|---|
+| Recall@1 | **41.7%** | 15.3% | 0.1% | 2.3% |
+| Recall@5 | **53.3%** | 20.1% | 0.7% | 7.7% |
+| Recall@10 | **58.2%** | 22.3% | 1.9% | 12.9% |
 
-**Result: DNABERT-S wins clearly.** Nucleotide Transformer is a general-purpose
-DNA model; DNABERT-S was purpose-trained for species differentiation, which is
-exactly this task. Not adopted — `final_pipeline.py` is unchanged. Reproduce
-with `python -m src.nt_diagnostics` (~7-8 min on CPU, no GPU required).
+**Result: DNABERT-S wins clearly against all three alternatives tested.**
+It's purpose-trained for species differentiation, which is exactly this
+task; the others are general-purpose (Nucleotide Transformer, GENA-LM,
+trained on human/multi-species genomes broadly, not to tell species
+apart) or too small for this task (HyenaDNA-tiny, 2 layers). **DNABERT-S
+remains the model of choice for this project.** Not adopted —
+`final_pipeline.py` is unchanged. Reproduce with `python -m
+src.nt_diagnostics` and `python -m src.multi_model_diagnostics` (~20 min
+combined on CPU, no GPU required).
 
-## Roadmap (professor's next steps, tracked in `Explanation.md` Part 5/6)
+## Roadmap (professor's next steps, tracked in `Explanation.md` Part 5/6/7)
 
-1. Open-source LLM models for retrieval — comparison of models — which classifies DNA better — **done**, Nucleotide Transformer tested and rejected (see above / `Explanation.md` Part 6)
+1. Open-source LLM models for retrieval — comparison of models — which classifies DNA better — **done**, 3 alternatives tested and rejected, DNABERT-S confirmed best (see above / `Explanation.md` Parts 6-7)
 2. BM25 with other models — **not started** (only one alternative model tried so far, and it underperformed — see above)
 3. Best model + BM25 + MMR + change DNA sequencing — **not started** (no alternative model has beaten DNABERT-S yet)
 4. Extend beyond fish to other species — **not started**

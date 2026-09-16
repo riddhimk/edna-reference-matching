@@ -995,3 +995,116 @@ artifacts.
 ```bash
 python -m src.nt_diagnostics   # ~7-8 min on CPU, no GPU required
 ```
+
+---
+
+# Part 7: Two more open-source models — completing the comparison
+
+Continuation of Part 6, testing two further open-source models so the
+"comparison of models" / "which classifies DNA better" next-steps items
+are answered with more than one data point.
+
+## 42. Models chosen, and why
+
+**DNABERT-2** (`zhihan1996/DNABERT-2-117M`) was tried first as the
+literature-recommended next candidate (higher published zero-shot AUC
+than Nucleotide Transformer). It loads without error, but crashes at
+inference: its remote code calls a Triton flash-attention kernel, and
+this environment's `torch` build ships Triton (unlike the Windows
+machine that blocked DNABERT-S outright), so it imports successfully --
+but the kernel itself hard-requires an actual CUDA GPU
+(`assert q.is_cuda`), which this CPU-only machine doesn't have. This is
+a **new, more specific finding** than Part 6's Windows/triton
+observation: even where Triton *is* installed, DNABERT-2 remains
+CPU-infeasible for a different reason. Confirmed by running it, not
+assumed from the README. Rejected before any large-scale embedding.
+
+Two working, architecturally distinct replacements were verified (source
+code inspected for triton/flash-attn/custom-kernel imports, then
+smoke-tested, before any full run -- same discipline as Part 6):
+
+- **HyenaDNA-tiny** (`LongSafari/hyenadna-tiny-1k-seqlen-hf`) -- a
+  state-space/implicit-convolution architecture (Hyena operator), not
+  attention-based at all. Genuinely different design family from
+  DNABERT-S/Nucleotide Transformer, chosen for architectural diversity
+  in the comparison rather than three transformer variants. Very small
+  (2 layers, d_model=128).
+- **GENA-LM** (`AIRI-Institute/gena-lm-bert-base-t2t`) -- a standard BERT
+  architecture, but trained on the human T2T reference assembly, a
+  different pretraining corpus from both DNABERT-S and Nucleotide
+  Transformer.
+
+## 43. What was compared, and how
+
+Same methodology as Part 6, generalized into one script
+(`src/multi_model_diagnostics.py`) instead of duplicating it per model:
+`stage0_diagnostics.build_holdout_split()` reused UNMODIFIED (identical
+1,000 held-out MitoFish fragments, seed=42), identical
+>=95%-full-sequence-identity ground truth
+(`nucleotide_rerank.align_pair`, frozen). Both new models' embedding
+logic lives in their own isolated modules (`src/hyenadna_embed.py`,
+`src/genalm_embed.py`) -- `embed_common.py`, `config.py`, and every
+frozen Part 3/4 artifact remain untouched.
+
+One real implementation issue surfaced and fixed during this part:
+HyenaDNA's tokenizer returns no `attention_mask` (it's a causal-LM,
+char-level tokenizer, not built for masked/bidirectional pooling) and
+left-pads sequences. Mean-pooling against a phantom "all tokens are
+real" mask would have silently corrupted every embedding. Fixed by
+deriving the mask directly from `input_ids != pad_token_id` instead of
+assuming `attention_mask` exists -- caught by inspecting the tokenizer's
+actual output before trusting it, not assumed to work like the other
+three models' tokenizers.
+
+## 44. Result: both underperform DNABERT-S, more severely than Part 6's model
+
+| Metric (n=1,000 held-out fragments) | DNABERT-S (frozen) | Nucleotide Transformer 50M (Part 6) | HyenaDNA-tiny | GENA-LM |
+|---|---|---|---|---|
+| Recall@1 | 41.7% | 15.3% | 0.1% | 2.3% |
+| Recall@5 | 53.3% | 20.1% | 0.7% | 7.7% |
+| Recall@10 | 58.2% | 22.3% | 1.9% | 12.9% |
+| Absent from top-10 | 41.8% | 77.7% | 98.1% | 87.1% |
+
+**Why HyenaDNA-tiny is near-random**: at 2 layers and d_model=128 it is
+the smallest model in the comparison by a wide margin, and its
+architecture family (implicit long convolution) was designed for
+long-range sequence modeling, not species-level discrimination between
+short fragments -- a capacity/objective mismatch, not a bug.
+
+**Why GENA-LM underperforms**: trained on the human T2T genome
+specifically, not multi-species genomic data -- a domain mismatch for
+fish mitochondrial 16S sequences, consistent with Part 6's finding that
+training objective/corpus matters more here than raw model
+sophistication.
+
+## 45. Decision: DNABERT-S confirmed as the best model for this use case
+
+Four models tested now (DNABERT-S, Nucleotide Transformer, HyenaDNA-tiny,
+GENA-LM); DNABERT-S wins by a wide, consistent margin on every metric
+against every alternative. `final_pipeline.py`, BM25, MMR, and the
+frozen nucleotide reranker remain unchanged. This closes out the
+"open-source LLM models for retrieval" / "comparison of models" / "which
+classifies DNA better" roadmap items with a well-evidenced answer:
+DNABERT-S, because it is species-contrastively trained for exactly this
+task, while every alternative tested is either too general-purpose, too
+small, or trained on the wrong corpus.
+
+## 46. Files and commands for this part
+
+**New files:** `src/hyenadna_embed.py`, `src/genalm_embed.py`,
+`src/multi_model_diagnostics.py`,
+`data/HyenaDNA diagnostics/recall_summary.txt`,
+`data/GENA-LM diagnostics/recall_summary.txt` (+ each model's train
+embeddings/ids).
+
+**Modified:** none of the existing pipeline, model config, or frozen
+artifacts.
+
+**Rejected without a full run:** DNABERT-2 (`zhihan1996/DNABERT-2-117M`)
+-- CPU-infeasible on this machine, confirmed by direct execution
+(Section 42).
+
+**Reproduce:**
+```bash
+python -m src.multi_model_diagnostics   # ~13 min on CPU, no GPU required
+```
