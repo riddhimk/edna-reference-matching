@@ -197,6 +197,10 @@ logic, not model output.
 | `src/genalm_embed.py` | GENA-LM (bert-base-t2t) embedding — isolated model |
 | `src/multi_model_diagnostics.py` | DNABERT vs HyenaDNA-tiny vs GENA-LM Recall@K comparison (`data/HyenaDNA diagnostics/`, `data/GENA-LM diagnostics/`) |
 | `src/other_kingdom_diagnostics.py` | Production architecture (BM25→MMR→reranker) validated on Bacteria/Archaea (16S V4) and Eukaryota (18S V9) held-out data (`data/Other Kingdoms diagnostics/`) |
+| `src/extract_amplicon_region_tara.py` | Re-extracts SILVA 18S V9 with Tara Pacific's real primers (1389F/1510R) |
+| `src/run_tara_18s_v9_experiment.py` | Real-read run: Tara Pacific 18S V9 (Eukaryota) vs re-extracted SILVA |
+| `src/extract_amplicon_region_tara_16s.py` | Re-extracts SILVA 16S V4-V5 with Tara Oceans' real primers (515F-Y/926R) |
+| `src/run_tara_16s_v4v5_experiment.py` | Real-read run: Tara Oceans 16S V4-V5 (Bacteria/Archaea) vs re-extracted SILVA |
 
 ## Model comparison: DNABERT-S vs 3 open-source alternatives
 
@@ -246,7 +250,13 @@ stays ≥97.7% across all three kingdoms — the same BM25→MMR→reranker
 design works without kingdom-specific tuning. Reproduce with `python -m
 src.other_kingdom_diagnostics` (~2-3 min on CPU).
 
-## Real non-fish read data: Tara Pacific 18S V9 (Eukaryota)
+## Real non-fish read data
+
+Full run-by-run log (setup, complications found and fixed, results, and
+a cross-kingdom comparison table) is in **`Real eDNA Read Runs Log.docx`**
+(project root). Short version below.
+
+### Tara Pacific 18S V9 (Eukaryota)
 
 Found and ran a **real** (not synthetic) seawater eDNA dataset — ENA run
 `ERR10928327`, Tara Pacific's 18S V9 plankton metabarcoding
@@ -279,7 +289,7 @@ working `.venv-win` combination) — the previously installed 4.56.2 (used
 throughout Parts 6-7's *other* model comparisons, which never touch
 `embed_common.py`) is incompatible with `multimolecule`.
 
-## Real non-fish read data: Tara Oceans 16S V4-V5 (Bacteria/Archaea)
+### Tara Oceans 16S V4-V5 (Bacteria/Archaea)
 
 Same treatment as above, for the other still-open kingdom — real reads
 from ENA run `ERR6090675` (Tara Oceans prokaryotes, `PRJEB36282`)
