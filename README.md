@@ -279,10 +279,40 @@ working `.venv-win` combination) — the previously installed 4.56.2 (used
 throughout Parts 6-7's *other* model comparisons, which never touch
 `embed_common.py`) is incompatible with `multimolecule`.
 
+## Real non-fish read data: Tara Oceans 16S V4-V5 (Bacteria/Archaea)
+
+Same treatment as above, for the other still-open kingdom — real reads
+from ENA run `ERR6090675` (Tara Oceans prokaryotes, `PRJEB36282`)
+against a freshly re-extracted SILVA 16S V4-V5 set matching this
+dataset's actual primers (`515F-Y`/`926R`, not Part 2's V4-only
+`515F`/`806R`). Full detail in `Explanation.md` Part 10.
+
+- 1,831,825 Bacteria/Archaea SILVA records matched both primers
+  completely (89.3% of those scanned) — subsampled to 5,000 references,
+  same size as Part 2's other SILVA samples.
+- Real reads showed the same dual-orientation mixing found in the
+  Eukaryota case (Part 9) — confirmed here too, not a V9-only quirk —
+  handled the same way (detect, trim, reverse-complement as needed).
+- **Result on 4,767 usable reads: 66.9% assigned** (≥95% identity),
+  32.9% best_guess, 0.2% low-confidence — far higher coverage than
+  Eukaryota's 4.8%, because this reference pool (5,000, drawn from 1.83M
+  matches) is much larger than the 18S V9 pool (853, the entire usable
+  set).
+- Unlike the Eukaryota case, a plausibility check **is** possible here:
+  named genera appear among the top hits (*Roseivivax salinus*,
+  *Rhodobacteraceae*, *Flavobacteriia*) — all well-known, genuinely
+  abundant real marine bacterioplankton groups, a believable signal
+  (though not independently NCBI-verified the way the fish/tuna finding
+  was).
+
+Reproduce with `python -m src.run_tara_16s_v4v5_experiment` (~a few
+minutes on CPU). All outputs live under `data/SILVA results/` —
+`data/MitoFish results/` (fish) remains untouched and separate.
+
 ## Roadmap (professor's next steps, tracked in `Explanation.md` Part 5/6/7/8)
 
 1. Open-source LLM models for retrieval — comparison of models — which classifies DNA better — **done**, 3 alternatives tested and rejected, DNABERT-S confirmed best (see above / `Explanation.md` Parts 6-7)
 2. BM25 with other models — **not started** (only one alternative model tried so far, and it underperformed — see above)
 3. Best model + BM25 + MMR + change DNA sequencing — **not started** (no alternative model has beaten DNABERT-S yet)
-4. Extend beyond fish to other species — **done**, architecture validated on Bacteria/Archaea and Eukaryota (synthetic, Part 8) and run on a real Eukaryota (18S V9) seawater dataset (Part 9) — real Bacteria/Archaea read data is still future work
+4. Extend beyond fish to other species — **done**, architecture validated on Bacteria/Archaea and Eukaryota (synthetic, Part 8), and run on real Eukaryota (18S V9, Part 9) AND real Bacteria/Archaea (16S V4-V5, Part 10) seawater datasets
 5. Unknown DNA → match to most similar, with species names, tiered by confidence — **done**, see Part 5 of `Explanation.md`

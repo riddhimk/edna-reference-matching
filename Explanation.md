@@ -1384,3 +1384,125 @@ REFERENCE_TABLE_CSV="data/SILVA results/silva_18s_v9_tara_reference_table.csv" R
 curl -s "https://ftp.sra.ebi.ac.uk/vol1/fastq/ERR109/027/ERR10928327/ERR10928327_1.fastq.gz" | zcat | head -n 20000 > "data/tara_18s_v9_first5000.fastq"
 python -m src.run_tara_18s_v9_experiment
 ```
+
+---
+
+# Part 10: A real Bacteria/Archaea eDNA read, completing the pair
+
+Part 9 closed the real-read gap for Eukaryota. This section does the
+same for Bacteria/Archaea -- the other still-open item from Part 8/9 --
+using Tara Oceans' real prokaryote 16S dataset. Same methodology
+throughout, no code shortcuts taken because it's the "second" kingdom.
+
+## 60. No new download needed for the reference side
+
+Unlike sourcing a brand-new read dataset, the reference side reused data
+already on disk: the full 2,224,690-record SILVA table
+(`data/SILVA results/silva_reference_table.csv`, from Part 1) was
+already local, so re-extracting a different region from it costs no
+network time at all -- only the real Tara Oceans reads themselves needed
+downloading.
+
+## 61. Primer verification: smaller mismatch than the 18S case, but real
+
+Tara Oceans' prokaryote protocol uses `515F-Y`/`926R` (Parada et al.
+2016), confirmed via literature (Section 42/54's same discipline). `515F-Y`
+is IDENTICAL to Part 2's original `515F` primer -- only the reverse
+primer differs (`806R` -> `926R`), extending the amplicon from V4-only
+into V4+V5. Still re-extracted properly rather than assumed close enough:
+`src/extract_amplicon_region_tara_16s.py` adds a `16s_v4v5_tara` entry to
+`extract_amplicon_region.py`'s `PRIMERS` dict (same additive pattern as
+Part 9, no edit to that frozen file).
+
+Run against the full local SILVA table:
+- 2,052,010 Bacteria/Archaea records scanned
+- 1,831,825 (89.3%) matched BOTH primers completely -- a far higher hit
+  rate than the 18S V9 case, and higher even than Part 2's original V4
+  extraction, consistent with 515F-Y being a very broadly-matching primer
+- Amplicon length: mean 373.1bp (min 128, max 1559) -- matches the
+  literature's ~400bp V4-V5 expectation well
+- Subsampled to 5,000 (same size as Part 2's other SILVA samples, for
+  consistency), 122 ambiguous-base records dropped -> **5,000 usable
+  references**, embedded with DNABERT-S
+
+## 62. Same real-read complication as Part 9, confirmed not a V9-only quirk
+
+Downloaded the first 5,000 reads of ERR6090675 (Tara Oceans prokaryotes,
+streamed + truncated early, same method as Part 9). Checked rather than
+assumed: roughly half start with the forward primer (515F-Y) and roughly
+half start with the reverse primer (926R) ITSELF -- the same dual-
+orientation mixing Part 9 found for 18S V9, now confirmed to also occur
+for a longer amplicon (373bp vs V9's ~130bp) where a read running past
+the insert into the opposite primer is less obviously expected. This
+means the mixing is a property of how this run's R1 file was assembled
+generally, not simply a short-amplicon read-through effect as originally
+guessed in Part 9. `src/run_tara_16s_v4v5_experiment.py` reuses the exact
+same detect/trim/reverse-complement approach as Part 9's script.
+
+- forward-primer (515F-Y) reads: 2,429
+- reverse-primer (926R) reads: 2,338 (reverse-complemented before matching)
+- no primer detected (excluded): 233 (4.7%)
+- usable: 4,767 of 5,000
+
+## 63. Result: much stronger coverage than Eukaryota, with a checkable plausibility signal
+
+| Decision | Count | % |
+|---|---|---|
+| assigned (>=95% identity) | 3,189 | 66.9% |
+| best_guess (75-95%) | 1,568 | 32.9% |
+| best_guess_low_confidence (<75%) | 10 | 0.2% |
+
+66.9% assigned vs. Part 9's 4.8% for Eukaryota -- expected, since this
+reference pool (5,000, sampled from 1.83M available matches) is far
+larger and better-populated than the 18S V9 pool (853, the entire usable
+set). The 3,189 assigned reads span 117 distinct references (vs. Part
+9's 10) -- top 5 references account for 41.8% of assignments, a real
+concentration but much less extreme than Part 9's top-2 = 82.7%.
+
+**Unlike Part 9, a plausibility check IS possible here**: SILVA's labels
+for these hits include named genera, not just "uncultured" -- Roseivivax
+salinus, Rhodobacteraceae bacterium, Flavobacteriia bacterium, and
+"uncultured marine archaeon" all appear among the top organisms.
+Rhodobacteraceae and Flavobacteriia are well-established, genuinely
+abundant marine bacterioplankton lineages in real oceanography
+literature -- this pattern is ecologically plausible, similar in spirit
+(though not independently NCBI-verified the way Part 4's tuna finding
+was) to the fish/tuna result, and a stronger signal than Part 9 could
+offer.
+
+## 64. What's established vs. still open (mirrors Part 8/9's format)
+
+- **Established**: a real, primer-verified Bacteria/Archaea eDNA dataset
+  now runs end-to-end through the unmodified production architecture,
+  with materially higher coverage (66.9%) than the smaller-pool
+  Eukaryota case, and a label set that's at least directionally
+  consistent with known marine microbiology.
+- **Still open**: no independent species-level verification (an NCBI
+  lookup, as Part 4 did for the 27 tuna-dominated MitoFish references)
+  was performed here -- SILVA's own taxonomy labels are trusted as-is.
+  Whether the top-5-reference concentration (41.8%) reflects genuine
+  ecological dominance or partial reference-pool artifact is not fully
+  resolved, though it is far less extreme than Part 9's case.
+
+## 65. Files and commands for this part
+
+**New files:** `src/extract_amplicon_region_tara_16s.py`,
+`src/run_tara_16s_v4v5_experiment.py`,
+`data/SILVA results/silva_16s_v4v5_tara_amplicons.csv`,
+`data/SILVA results/silva_16s_v4v5_tara_reference_table.csv` (5,000
+refs), `data/SILVA results/silva_16s_v4v5_tara_ref_embeddings.npy` /
+`_ref_ids.csv`, `data/tara_16s_v4v5_first5000.fastq` (real reads from
+ERR6090675), `data/SILVA results/tara_16s_v4v5_read_taxonomy_results.csv`.
+
+**Modified:** none of the existing pipeline or frozen artifacts.
+`data/MitoFish results/` (fish) remains completely untouched and
+separate, as it has been since Part 3.
+
+**Reproduce:**
+```bash
+python -m src.extract_amplicon_region_tara_16s "data/SILVA results/silva_reference_table.csv" "data/SILVA results/silva_16s_v4v5_tara_amplicons.csv"
+python -m src.subsample_reference_table "data/SILVA results/silva_16s_v4v5_tara_amplicons.csv" "data/SILVA results/silva_16s_v4v5_tara_reference_table.csv" 5000 42
+REFERENCE_TABLE_CSV="data/SILVA results/silva_16s_v4v5_tara_reference_table.csv" REFERENCE_EMBEDDINGS_NPY="data/SILVA results/silva_16s_v4v5_tara_ref_embeddings.npy" REFERENCE_IDS_CSV="data/SILVA results/silva_16s_v4v5_tara_ref_ids.csv" python run_pipeline.py embed-ref
+curl -s "https://ftp.sra.ebi.ac.uk/vol1/fastq/ERR609/005/ERR6090675/ERR6090675_1.fastq.gz" | zcat | head -n 20000 > "data/tara_16s_v4v5_first5000.fastq"
+python -m src.run_tara_16s_v4v5_experiment
+```
