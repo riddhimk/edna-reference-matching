@@ -1214,3 +1214,173 @@ not duplicated by value.
 ```bash
 python -m src.other_kingdom_diagnostics   # ~2-3 min on CPU
 ```
+
+---
+
+# Part 9: A real (non-fish) eDNA read, for the first time
+
+Part 8 validated the architecture on held-out SYNTHETIC fragments only,
+and stated plainly that no real bacterial/archaeal/eukaryotic eDNA read
+existed in this project. This section closes that gap for Eukaryota:
+finding, verifying, and running a real seawater eDNA dataset end-to-end
+through the production architecture -- the same rigor Part 3 used to
+find MitoFish for fish, applied here to a different kingdom.
+
+## 53. Finding a real dataset, and a real primer mismatch caught early
+
+Searched ENA directly (not assumed from a paper abstract) for real,
+public seawater eDNA amplicon datasets. Several candidates were checked
+and rejected before settling on one:
+
+- A small Japanese 16S seawater study (`PRJDB1797`/`1803`/`1947`) used
+  old 454-pyrosequencing reads (~515bp average) -- wrong platform/length
+  for this project's short-read methodology.
+- A larger 515F/806R V4 study (`PRJDB15800`) looked promising on primers
+  alone, but its individual samples turned out to be lab-cultured
+  enrichment communities, not raw environmental seawater -- checked by
+  reading actual sample titles, not assumed from the project description.
+- **Tara Oceans/Tara Pacific** (`PRJEB36282` for 16S, `PRJEB60216` for
+  18S V9) are real, published, peer-reviewed global ocean eDNA surveys --
+  genuine filtered seawater, modern Illumina sequencing. `PRJEB60216`
+  (18S V9, ~151bp reads) was selected as faster to validate than the 16S
+  option, since its read length already matches this project's
+  established 118-140bp methodology without extra trimming decisions.
+
+**Primer mismatch caught before downloading anything large**: Tara
+Pacific's actual 18S V9 primers are `1389F`/`1510R` (confirmed via
+literature, Nature Scientific Data 2017), NOT the `1391F`/`EukBr` pair
+Part 2 used to build the original SILVA V9 extraction. Close, but
+different -- exactly the kind of mismatch this project's own Part 1
+already proved matters. Reusing Part 2's existing extraction here would
+have repeated that mistake.
+
+## 54. Re-extracting SILVA with the real primers
+
+`src/extract_amplicon_region_tara.py` adds a new primer entry to
+`extract_amplicon_region.py`'s existing `PRIMERS` dict AT IMPORT TIME
+(no edit to that frozen file) and reuses its `extract_region()` function
+unchanged. Run against the full 2,224,690-record SILVA table:
+
+- 172,680 Eukaryota records scanned
+- 865 had the forward primer (1389F) -- a much lower hit rate than Part
+  2's 1391F extraction (140,968 usable amplicons), because 1389F's exact
+  15bp window doesn't match as many real SILVA sequences as 1391F's
+  slightly different window. A real, measured difference between two
+  "almost the same" primers, not assumed to be equivalent.
+- 864/865 (99.9%) ALSO matched the reverse primer (1510R) completely --
+  unlike Part 2's EukBr, which was truncated in this SILVA file and
+  needed a "forward-to-end" approximation. This extraction is a
+  genuinely complete, both-primers-verified amplicon, not an
+  approximation -- a real quality improvement, offset by a much smaller
+  pool (864 vs. 140,968).
+- After removing 11 ambiguous-base sequences (same rule as every prior
+  stage): **853 usable references**, embedded with DNABERT-S
+  (multimolecule/dnaberts, unchanged model).
+
+## 55. Environment note: multimolecule/DNABERT-S needed a version fix
+
+Embedding this new reference table was the first time this session
+actually invoked `embed_common.py`'s DNABERT-S path (every model
+comparison in Parts 6-7 used its own separate embedding module and never
+touched it). It failed immediately: `multimolecule==0.2.1` (already
+installed) could not import under `transformers==4.56.2` (also already
+installed) -- a real version-incompatibility, not a code bug. Checking
+`.venv-win` (the Windows venv the project's own README says has the
+working combination) showed the actual working pin: `transformers==
+5.15.1`. Installing that exact version fixed it immediately and the full
+test suite (75/75) still passes under it. This is now the working
+combination for this Linux `.venv` too.
+
+## 56. Real reads needed new handling MitoFish's reads didn't
+
+Downloaded the first 5,000 real reads from ERR10928327 (streamed and
+truncated early via `curl | zcat | head`, avoiding a full ~100MB+
+download for data only the first 5,000 records of which were needed).
+Inspecting them (not assuming they'd look like `ERR16922870`) found a
+real difference: **these reads still carry their PCR primer sequence**,
+unlike the fish reads, which arrived primer-trimmed. Roughly half start
+with the forward primer (1389F) and roughly half start with the reverse
+primer (1510R) ITSELF (not its reverse complement) -- meaning this run's
+R1 file mixes reads primed from both ends of the amplicon, expected
+because the ~130bp insert is shorter than the 150bp read length, so a
+read can run past the insert into the opposite primer's binding site.
+
+`src/run_tara_18s_v9_experiment.py` detects which primer each read
+starts with (tolerating a leading `N` low-quality basecall), trims it,
+and reverse-complements reverse-primed reads so every read is compared
+in the same orientation as the reference table's forward strand. Reads
+matching neither primer (246/5,000, 4.9% -- likely extra sequencing
+error near the read start) are excluded rather than guessed at.
+
+## 57. Result: first real non-fish classification
+
+4,754 of 5,000 reads had a usable, oriented primer match and were run
+through the FROZEN production architecture (BM25 -> MMR -> nucleotide
+reranker -> tiered decision) against the 853-reference, real-primer-
+verified SILVA 18S V9 set:
+
+| Decision | Count | % |
+|---|---|---|
+| assigned (>=95% identity) | 226 | 4.8% |
+| best_guess (75-95%) | 3,882 | 81.7% |
+| best_guess_low_confidence (<75%) | 646 | 13.6% |
+
+The 226 assigned reads span only 10 distinct references, with the top 2
+absorbing 187/226 (82.7%) -- a concentration reminiscent of Part 3's
+fish "hubness" finding. Unlike that case, though, this pipeline already
+includes the fix Part 4 built for exactly that problem (the independent
+nucleotide-alignment reranker), so this concentration more likely
+reflects the reference pool's small size (853 records, many of which are
+probably near-duplicate representatives of a few commonly-sequenced
+marine lineages) than an embedding-space artifact -- but this is **not
+verified the way Part 4's tuna finding was** (no independent NCBI
+species check was possible here: SILVA's own labels for the top hits are
+literally "uncultured eukaryote" / "uncultured marine eukaryote",
+offering no specific species name to cross-check against known plankton
+ecology). Stated as an open question, not resolved.
+
+## 58. What's established vs. still open
+
+- **Established**: a real, verified, primer-matched non-fish eDNA
+  dataset now exists and was run end-to-end through the unmodified
+  production architecture; the low 4.8% coverage is consistent with
+  Part 8's synthetic finding (69.5% assigned there used a 5,000-record
+  pool -- this real run's reference pool is 853 records, ~6x smaller, so
+  materially lower real-read coverage is expected, not surprising).
+- **Still open**: whether the top-2-reference concentration is real
+  biology or an artifact of the small reference pool is unresolved --
+  unlike Part 4's tuna verification, SILVA provides no species-level
+  label here to check against. Growing the reference pool (a primer
+  search compatible with 1510R's un-truncated match, run against a
+  larger SILVA sample) would be the natural next step to test whether
+  coverage and concentration both improve with more references, mirroring
+  how MitoFish's full 16,592-record pool outperformed a 5,000-record
+  SILVA sample in Parts 1-3.
+
+## 59. Files and commands for this part
+
+**New files:** `src/extract_amplicon_region_tara.py`,
+`src/run_tara_18s_v9_experiment.py`,
+`data/SILVA results/silva_18s_v9_tara_amplicons.csv`,
+`data/SILVA results/silva_18s_v9_tara_reference_table.csv` (853 refs),
+`data/SILVA results/silva_18s_v9_tara_ref_embeddings.npy` /
+`_ref_ids.csv`, `data/tara_18s_v9_first5000.fastq` (real reads from
+ERR10928327), `data/SILVA results/tara_18s_v9_read_taxonomy_results.csv`.
+
+**Modified:** none of the existing pipeline or frozen artifacts.
+`extract_amplicon_region.py`'s `PRIMERS` dict gains a new entry added at
+runtime by the new script, not by editing that file.
+
+**Environment change**: `transformers` pinned to `5.15.1` in `.venv`
+(was 4.56.2) to match the working `.venv-win` combination -- required
+for `multimolecule`/DNABERT-S to load at all; full test suite reverified
+passing (75/75) under this version.
+
+**Reproduce:**
+```bash
+python -m src.extract_amplicon_region_tara "data/SILVA results/silva_reference_table.csv" "data/SILVA results/silva_18s_v9_tara_amplicons.csv"
+python -m src.subsample_reference_table "data/SILVA results/silva_18s_v9_tara_amplicons.csv" "data/SILVA results/silva_18s_v9_tara_reference_table.csv" 900 42
+REFERENCE_TABLE_CSV="data/SILVA results/silva_18s_v9_tara_reference_table.csv" REFERENCE_EMBEDDINGS_NPY="data/SILVA results/silva_18s_v9_tara_ref_embeddings.npy" REFERENCE_IDS_CSV="data/SILVA results/silva_18s_v9_tara_ref_ids.csv" python run_pipeline.py embed-ref
+curl -s "https://ftp.sra.ebi.ac.uk/vol1/fastq/ERR109/027/ERR10928327/ERR10928327_1.fastq.gz" | zcat | head -n 20000 > "data/tara_18s_v9_first5000.fastq"
+python -m src.run_tara_18s_v9_experiment
+```

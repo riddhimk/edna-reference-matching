@@ -246,10 +246,43 @@ stays ≥97.7% across all three kingdoms — the same BM25→MMR→reranker
 design works without kingdom-specific tuning. Reproduce with `python -m
 src.other_kingdom_diagnostics` (~2-3 min on CPU).
 
+## Real non-fish read data: Tara Pacific 18S V9 (Eukaryota)
+
+Found and ran a **real** (not synthetic) seawater eDNA dataset — ENA run
+`ERR10928327`, Tara Pacific's 18S V9 plankton metabarcoding
+(`PRJEB60216`) — through the unmodified production architecture. Full
+detail in `Explanation.md` Part 9; short version:
+
+- Re-extracted SILVA's 18S region using this dataset's **actual** primers
+  (`1389F`/`1510R`, confirmed via literature) rather than reusing Part 2's
+  close-but-different `1391F`/`EukBr` extraction — same "don't assume,
+  verify" discipline as every prior region-matching decision in this
+  project. Result: 853 real-primer-verified references (smaller pool than
+  Part 2's 5,000, but both-primer-confirmed rather than approximated).
+- Real reads needed new handling: they still carry their PCR primer
+  (unlike the fish reads), and about half are primed from the *opposite*
+  end of the short amplicon — both detected and corrected before
+  matching (primer trim + reverse-complement where needed).
+- **Result on 4,754 usable reads:** 4.8% assigned (≥95% identity), 81.7%
+  best_guess, 13.6% low-confidence. The 226 assigned reads span only 10
+  references (top 2 = 82.7% of assignments) — possibly real dominance by
+  a common lineage, possibly a small-reference-pool artifact; SILVA's own
+  labels here are just "uncultured eukaryote," so unlike the fish/tuna
+  case there's no species name to independently verify against.
+
+Reproduce with `python -m src.run_tara_18s_v9_experiment` (~2 min on
+CPU, after building the reference set per `Explanation.md` Part 9).
+
+**Environment note:** getting DNABERT-S/`multimolecule` to load in this
+Linux `.venv` required pinning `transformers==5.15.1` (matching the
+working `.venv-win` combination) — the previously installed 4.56.2 (used
+throughout Parts 6-7's *other* model comparisons, which never touch
+`embed_common.py`) is incompatible with `multimolecule`.
+
 ## Roadmap (professor's next steps, tracked in `Explanation.md` Part 5/6/7/8)
 
 1. Open-source LLM models for retrieval — comparison of models — which classifies DNA better — **done**, 3 alternatives tested and rejected, DNABERT-S confirmed best (see above / `Explanation.md` Parts 6-7)
 2. BM25 with other models — **not started** (only one alternative model tried so far, and it underperformed — see above)
 3. Best model + BM25 + MMR + change DNA sequencing — **not started** (no alternative model has beaten DNABERT-S yet)
-4. Extend beyond fish to other species — **done**, architecture validated on Bacteria/Archaea and Eukaryota (see above / `Explanation.md` Part 8) — real-read data for these kingdoms is still future work
+4. Extend beyond fish to other species — **done**, architecture validated on Bacteria/Archaea and Eukaryota (synthetic, Part 8) and run on a real Eukaryota (18S V9) seawater dataset (Part 9) — real Bacteria/Archaea read data is still future work
 5. Unknown DNA → match to most similar, with species names, tiered by confidence — **done**, see Part 5 of `Explanation.md`

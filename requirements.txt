@@ -1,6 +1,8 @@
 torch>=2.0
-transformers>=4.38
-multimolecule>=0.0.5
+# multimolecule 0.2.1 (below) needs transformers>=5.x -- confirmed working at
+# exactly 5.15.1 (Explanation.md Part 9, Section 55); 4.x is incompatible.
+transformers==5.15.1
+multimolecule==0.2.1
 faiss-cpu>=1.7.4
 numpy>=1.24
 scikit-learn>=1.3
