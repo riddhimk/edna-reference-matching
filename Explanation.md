@@ -1506,3 +1506,149 @@ REFERENCE_TABLE_CSV="data/SILVA results/silva_16s_v4v5_tara_reference_table.csv"
 curl -s "https://ftp.sra.ebi.ac.uk/vol1/fastq/ERR609/005/ERR6090675/ERR6090675_1.fastq.gz" | zcat | head -n 20000 > "data/tara_16s_v4v5_first5000.fastq"
 python -m src.run_tara_16s_v4v5_experiment
 ```
+
+---
+
+# Part 11: Fine-tuning DNABERT-S separately per kingdom
+
+New next-step, from the professor: fine-tune DNABERT-S on each of the 3
+species datasets (real data, 1,000-5,000 samples, not the whole
+database), as 3 separate models. This section covers what was fine-tuned
+on, how, the results, and a real evaluation bug caught and fixed along
+the way.
+
+## 66. What each kingdom was fine-tuned on, and why the labels differ
+
+All three use REAL reference data already established as correct for
+each kingdom in this project (MitoFish for fish, the Tara-primer-
+verified SILVA extractions for the other two -- not Part 2's older,
+primer-mismatched SILVA samples):
+
+| Kingdom | Reference data | Records | Label source |
+|---|---|---|---|
+| Fish | `mitofish_16s_finetune_sample.csv` (5,000-record subsample of the full MitoFish table) | 5,000 | **Fetched from NCBI** via `species_lookup.py` (reused, unmodified) -- MitoFish itself ships with no species names at all (established in Part 3); genus (first word of the resolved name) used as the class label |
+| Bacteria/Archaea | `silva_16s_v4v5_tara_reference_table.csv` (Part 10's real-primer-verified 16S V4-V5 set) | 5,000 | SILVA's own `Taxonomy_Full`, truncated to depth 4 |
+| Eukaryota | `silva_18s_v9_tara_reference_table.csv` (Part 9's real-primer-verified 18S V9 set) | 853 (the entire usable pool -- naturally under 1,000) | SILVA's own `Taxonomy_Full`, truncated to depth 4 |
+
+Sequences whose class has fewer than 2 members were dropped (no positive
+pair possible) -- reported, not silently discarded: 4,654/5,000 (fish),
+4,907/5,000 (bacteria), 844/853 (eukaryota) records were usable.
+
+## 67. Method: supervised contrastive fine-tuning, not continued MLM pretraining
+
+`src/finetune_dnabert.py` fine-tunes the FULL `multimolecule/dnaberts`
+model (117M parameters) with a supervised contrastive loss (SupCon,
+Khosla et al. 2020) using class-balanced batches (4 classes x 4
+sequences/class per batch, so every anchor has a guaranteed in-batch
+positive) -- pulling same-class sequences' mean-pooled, L2-normalized
+embeddings together and pushing different-class ones apart. This
+mirrors DNABERT-S's own original training philosophy (species-aware
+contrastive learning), just specialized to each kingdom's real data
+instead of left as the frozen general-purpose checkpoint.
+
+Chosen over continued masked-language-model pretraining because every
+downstream use of these embeddings (FAISS cosine retrieval, MMR
+diversity scoring) is nearest-neighbor geometry -- directly optimizing
+"same class close, different class far" is a more direct match to that
+use case than optimizing token-prediction accuracy.
+
+Each kingdom trained SEPARATELY (2 epochs, AdamW lr=1e-5, temperature
+0.1) -- no weight sharing across kingdoms, three independent checkpoints
+saved to `models/dnaberts_finetuned_{fish,bacteria,eukaryota}/`
+(gitignored -- 447MB each, 1.3GB total, not committed). Loss decreased
+in every epoch of every run (e.g. fish: 1.437 -> 1.312; bacteria: 1.489
+-> 1.274; eukaryota: 2.034 -> 1.541), confirming the training loop is
+genuinely learning, not stuck.
+
+Feasibility checked before committing to the full run (same discipline
+as every prior model decision in this project): a small timing benchmark
+(one fwd+bwd+optimizer step, batch=16) measured ~2s/step on this CPU-only
+machine, giving a real, not guessed, time estimate before the ~80-minute
+total training run across all three kingdoms was launched.
+
+## 68. A real evaluation bug caught and fixed before trusting any result
+
+The first evaluation attempt compared each fine-tuned model against the
+WRONG frozen baseline: for bacteria and eukaryota, it reused Part 8's
+already-saved Recall@10 numbers (82.0% / 70.5%), which were measured on
+Part 2's OLDER, primer-mismatched SILVA extractions (`silva_16s_v4_sample.csv`,
+`silva_18s_v9_sample.csv`) -- NOT the same Tara-primer-verified tables
+the models were actually fine-tuned on. This produced an alarming,
+wrong-looking result (bacteria appearing to collapse from 82.0% to
+26.4%) that turned out to be an artifact of evaluating a V4-V5-specialized
+model against a V4-only test set, not a real finding about fine-tuning.
+
+Caught by checking what `other_kingdom_diagnostics.KINGDOMS` actually
+pointed to, rather than trusting the printed delta at face value.
+`src/evaluate_finetuned.py` was corrected to build the held-out
+split/synthetic fragments from the EXACT SAME reference tables each
+model was fine-tuned on (`REF_TABLES` dict), and to recompute a fresh,
+domain-matched frozen baseline in the same run for bacteria and
+eukaryota (fish's existing Stage 0 baseline was legitimately reusable
+as-is, since fine-tuning used a subsample of that exact same full
+MitoFish table).
+
+## 69. Result: genuinely mixed, kingdom-dependent
+
+| Kingdom | n_holdout | Recall@10 frozen | Recall@10 fine-tuned | Delta |
+|---|---|---|---|---|
+| Fish | 1,000 | 58.2% | **78.6%** | **+20.4pp** |
+| Bacteria/Archaea | 1,000 | 17.1% | 7.9% | -9.2pp |
+| Eukaryota | 89 | 62.9% | **69.7%** | **+6.7pp** |
+
+(Note: the bacteria/eukaryota frozen baselines here, 17.1%/62.9%, are
+NOT the same numbers as Part 8's 82.0%/70.5% -- those were measured on
+different, primer-mismatched reference tables, per Section 68. The
+V4-V5 region is intrinsically harder for the frozen model than the
+V4-only region Part 8 tested, independent of fine-tuning.)
+
+Fish improved substantially -- expected, since real genus-level labels
+(fetched from NCBI specifically for this) gave the model a strong,
+clean supervised signal it never had access to before. Eukaryota
+improved modestly. **Bacteria regressed.** A plausible explanation,
+stated as a hypothesis, not confirmed: the bacteria fine-tuning set
+spans 177 classes (the most of any kingdom) over only 2 epochs -- the
+model may need more epochs or a lower learning rate to avoid disrupting
+the pretrained representation before the contrastive signal fully
+consolidates across that many classes, whereas fish (569 classes, but a
+much stronger absolute starting-point gap of 41.8pp room-to-improve) and
+eukaryota (only 29 classes) may have converged more easily in the same
+2-epoch budget. This was not re-run with more epochs to confirm --
+stated as open, not resolved.
+
+## 70. What's established vs. still open
+
+- **Established**: fine-tuning genuinely changes retrieval behavior
+  (never a no-op) and helps in 2 of 3 kingdoms tested, by a real,
+  measured margin, on a domain-matched held-out split -- not assumed
+  to help universally, and the one regression is reported plainly
+  rather than hidden.
+- **Still open**: whether more epochs, a different learning rate, or
+  more training classes would fix bacteria's regression; whether this
+  changes end-to-end BM25->MMR->reranker pipeline results (all
+  evaluation here is embedding-retrieval-only, Recall@K, the same
+  scope Stage 0-3 used before the full architecture was assembled) --
+  the next step (BM25+MMR vs BM25+RRF comparison, professor's next
+  item) will determine whether these embedding changes matter at all
+  once BM25 is the primary retriever and the fine-tuned embeddings are
+  only used for MMR's diversity signal.
+
+## 71. Files and commands for this part
+
+**New files:** `src/finetune_dnabert.py`, `src/evaluate_finetuned.py`,
+`models/dnaberts_finetuned_{fish,bacteria,eukaryota}/` (gitignored,
+1.3GB total), `data/MitoFish results/mitofish_16s_finetune_sample.csv`
+(5,000-record real MitoFish subsample with NCBI-resolved genus labels),
+`data/MitoFish results/finetune_species_name_cache.csv`,
+`data/*/finetune_metadata.json` per kingdom, `data/finetune_evaluation.log`.
+
+**Modified:** `.gitignore` (added `models/`). No existing pipeline code,
+frozen artifact, or prior model checkpoint touched.
+
+**Reproduce:**
+```bash
+python -m src.finetune_dnabert "data/SILVA results/silva_18s_v9_tara_reference_table.csv" taxonomy_depth models/dnaberts_finetuned_eukaryota 4 2
+python -m src.finetune_dnabert "data/SILVA results/silva_16s_v4v5_tara_reference_table.csv" taxonomy_depth models/dnaberts_finetuned_bacteria 4 2
+python -m src.finetune_dnabert "data/MitoFish results/mitofish_16s_finetune_sample.csv" genus models/dnaberts_finetuned_fish 4 2
+python -m src.evaluate_finetuned
+```

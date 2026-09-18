@@ -319,10 +319,48 @@ Reproduce with `python -m src.run_tara_16s_v4v5_experiment` (~a few
 minutes on CPU). All outputs live under `data/SILVA results/` —
 `data/MitoFish results/` (fish) remains untouched and separate.
 
-## Roadmap (professor's next steps, tracked in `Explanation.md` Part 5/6/7/8)
+## Fine-tuning DNABERT-S per kingdom
+
+Fine-tuned `multimolecule/dnaberts` separately on real data from each of
+the 3 kingdoms (1,000-5,000 real samples each, not the full database) —
+3 independent checkpoints, supervised contrastive objective (same
+species-aware training philosophy as DNABERT-S's own paper). Full detail
+in `Explanation.md` Part 11. Result, measured on a domain-matched
+held-out split for each kingdom (frozen vs. fine-tuned, same split for
+both):
+
+| Kingdom | Recall@10 frozen | Recall@10 fine-tuned | Delta |
+|---|---|---|---|
+| Fish | 58.2% | **78.6%** | **+20.4pp** |
+| Bacteria/Archaea | 17.1% | 7.9% | -9.2pp |
+| Eukaryota | 62.9% | **69.7%** | **+6.7pp** |
+
+**Mixed, honest result — fine-tuning helped 2 of 3 kingdoms, regressed
+one.** Fish improved the most, likely because real genus-level labels
+(fetched fresh from NCBI, since MitoFish itself has none) gave the
+clearest supervised signal. Bacteria's regression is unresolved — stated
+as a hypothesis (177 classes may need more than 2 epochs to converge
+without disrupting DNABERT-S's pretrained representation), not confirmed.
+
+**A real evaluation bug was caught and fixed before trusting any of
+this**: the first attempt compared bacteria/eukaryota against Part 8's
+saved baseline numbers, which were measured on a *different* (older,
+primer-mismatched) reference table than what was actually fine-tuned on
+— an apples-to-oranges comparison that produced an alarming, wrong
+result. Fixed by rebuilding the comparison on the exact same table each
+model trained on. See `Explanation.md` Part 11, Section 68.
+
+Models are gitignored (447MB each, 1.3GB total — not committed).
+Reproduce with `python -m src.finetune_dnabert <ref_table> <label_kind>
+<out_dir> [depth] [epochs]` per kingdom, then `python -m
+src.evaluate_finetuned` (~80 min training + ~15 min eval, CPU).
+
+## Roadmap (professor's next steps, tracked in `Explanation.md` Part 5/6/7/8/11)
 
 1. Open-source LLM models for retrieval — comparison of models — which classifies DNA better — **done**, 3 alternatives tested and rejected, DNABERT-S confirmed best (see above / `Explanation.md` Parts 6-7)
 2. BM25 with other models — **not started** (only one alternative model tried so far, and it underperformed — see above)
 3. Best model + BM25 + MMR + change DNA sequencing — **not started** (no alternative model has beaten DNABERT-S yet)
 4. Extend beyond fish to other species — **done**, architecture validated on Bacteria/Archaea and Eukaryota (synthetic, Part 8), and run on real Eukaryota (18S V9, Part 9) AND real Bacteria/Archaea (16S V4-V5, Part 10) seawater datasets
 5. Unknown DNA → match to most similar, with species names, tiered by confidence — **done**, see Part 5 of `Explanation.md`
+6. Fine-tune DNABERT-S on the 3 species datasets, separately — **done**, mixed results (2/3 kingdoms improved), see above / `Explanation.md` Part 11
+7. Run BM25+MMR or BM25+RRF (whichever performs better) on the 3 datasets — **not started, next up**
