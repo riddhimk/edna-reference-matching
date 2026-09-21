@@ -23,12 +23,18 @@ any existing checkpoint/config.
 Usage:
     python -m src.evaluate_finetuned
 """
+import os
 import time
 import numpy as np
 import faiss
+import torch
 
 from .faiss_index import l2_normalize
 from .nucleotide_rerank import align_pair
+
+# torch defaults to half this machine's cores; embedding is the bulk of this
+# script's runtime, so use all of them.
+torch.set_num_threads(os.cpu_count() or 8)
 
 # Fish: legitimately reusable as-is -- src/finetune_dnabert.py fine-tuned on a
 # 5,000-record SUBSAMPLE of this exact same full MitoFish table (same region,
@@ -42,6 +48,13 @@ from .nucleotide_rerank import align_pair
 # IDENTICAL split used for the fine-tuned evaluation, for a fair comparison.
 FROZEN_BASELINE_RECALL_AT_10 = {
     "fish": 0.582,
+    # Bacteria: measured in this script's own corrected run on the IDENTICAL
+    # seed-42 split of silva_16s_v4v5_tara_reference_table.csv with the frozen
+    # multimolecule/dnaberts model (data/finetune_evaluation.log). Reused rather
+    # than recomputed -- 5,000 re-embeddings for a number already measured under
+    # identical conditions, the same reuse-a-saved-result pattern Part 4 used for
+    # Task 3's lambda sweep.
+    "bacteria": 0.171,
 }
 
 KINGDOMS = [
@@ -180,10 +193,13 @@ def evaluate_kingdom(kingdom: str, model_dir: str):
     return result
 
 
-def main():
+def main(kingdoms=None):
+    """kingdoms: optional list of (kingdom, model_dir) to evaluate instead of
+    all three -- used to re-check a single corrected checkpoint without
+    re-running the other two kingdoms' embeddings."""
     print("=== Fine-tuned vs frozen-baseline Recall@K, per kingdom ===")
     print("(identical held-out split/fragments as each kingdom's already-established frozen baseline)\n")
-    results = [evaluate_kingdom(k, d) for k, d in KINGDOMS]
+    results = [evaluate_kingdom(k, d) for k, d in (kingdoms or KINGDOMS)]
 
     print("\n=== Summary ===")
     for r in results:
@@ -194,4 +210,8 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+    if len(sys.argv) > 2:
+        main([(sys.argv[1], sys.argv[2])])
+    else:
+        main()

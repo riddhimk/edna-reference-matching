@@ -331,18 +331,28 @@ both):
 
 | Kingdom | Recall@10 frozen | Recall@10 fine-tuned | Delta |
 |---|---|---|---|
-| Fish | 58.2% | **78.6%** | **+20.4pp** |
-| Bacteria/Archaea | 17.1% | 7.9% | -9.2pp |
-| Eukaryota | 62.9% | **69.7%** | **+6.7pp** |
+| Fish | 58.2% | 78.6% | +20.4pp ⚠️ |
+| **Bacteria/Archaea** (corrected, Part 12) | 17.1% | **79.2%** | **+62.1pp** |
+| Eukaryota | 62.9% | 69.7% | +6.7pp ⚠️ |
 
-**Mixed, honest result — fine-tuning helped 2 of 3 kingdoms, regressed
-one.** Fish improved the most, likely because real genus-level labels
-(fetched fresh from NCBI, since MitoFish itself has none) gave the
-clearest supervised signal. Bacteria's regression is unresolved — stated
-as a hypothesis (177 classes may need more than 2 epochs to converge
-without disrupting DNABERT-S's pretrained representation), not confirmed.
+**Bacteria initially regressed (17.1% → 7.9%) and was corrected in Part
+12.** Three separate causes were diagnosed from the data before changing
+anything: (1) training used only full 373bp amplicons while queries are
+118-140bp fragments — bacteria has by far the worst such asymmetry (a
+query covers 34.6% of a typical reference, vs 64% fish / 99% eukaryota);
+(2) taxonomy labels at depth 4 put up to 418 sequences in one class,
+destroying the instance-level distinctions the task needs; (3) training
+included the evaluation's held-out records. `src/finetune_dnabert_fragment.py`
+fixes all three (fragment↔full-amplicon pairs, instance-level labels,
+train-split-only) and turns −9.2pp into **+62.1pp**.
 
-**A real evaluation bug was caught and fixed before trusting any of
+⚠️ **Fish and Eukaryota were not re-run with the corrected trainer**, so
+their numbers above still include cause (3) — training on the evaluation's
+held-out records — and are likely overstated. Re-run with
+`finetune_dnabert_fragment.py` before comparing the three against each
+other. See `Explanation.md` Part 12, Section 76.
+
+**An evaluation bug was also caught and fixed before trusting any of
 this**: the first attempt compared bacteria/eukaryota against Part 8's
 saved baseline numbers, which were measured on a *different* (older,
 primer-mismatched) reference table than what was actually fine-tuned on
@@ -362,5 +372,5 @@ src.evaluate_finetuned` (~80 min training + ~15 min eval, CPU).
 3. Best model + BM25 + MMR + change DNA sequencing — **not started** (no alternative model has beaten DNABERT-S yet)
 4. Extend beyond fish to other species — **done**, architecture validated on Bacteria/Archaea and Eukaryota (synthetic, Part 8), and run on real Eukaryota (18S V9, Part 9) AND real Bacteria/Archaea (16S V4-V5, Part 10) seawater datasets
 5. Unknown DNA → match to most similar, with species names, tiered by confidence — **done**, see Part 5 of `Explanation.md`
-6. Fine-tune DNABERT-S on the 3 species datasets, separately — **done**, mixed results (2/3 kingdoms improved), see above / `Explanation.md` Part 11
+6. Fine-tune DNABERT-S on the 3 species datasets, separately — **done**; bacteria's initial regression diagnosed and corrected (+62.1pp, `Explanation.md` Part 12); fish/eukaryota still need re-running with the corrected trainer
 7. Run BM25+MMR or BM25+RRF (whichever performs better) on the 3 datasets — **not started, next up**

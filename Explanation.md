@@ -1652,3 +1652,152 @@ python -m src.finetune_dnabert "data/SILVA results/silva_16s_v4v5_tara_reference
 python -m src.finetune_dnabert "data/MitoFish results/mitofish_16s_finetune_sample.csv" genus models/dnaberts_finetuned_fish 4 2
 python -m src.evaluate_finetuned
 ```
+
+---
+
+# Part 12: Correcting the bacteria fine-tuning regression
+
+Part 11 left bacteria as the one kingdom where fine-tuning made things
+worse (Recall@10 17.1% frozen -> 7.9% fine-tuned). This part diagnoses
+why -- three separate, individually confirmed causes -- fixes all three,
+and re-measures.
+
+## 72. Diagnosis before any code change
+
+Rather than guessing at hyperparameters, three hypotheses were tested
+against the actual data first:
+
+**Cause 1 -- input mismatch (the dominant one, and specific to bacteria).**
+The query at evaluation time is a 118-140bp read; the reference database
+holds full amplicons. Measured coverage of a typical reference by a
+129bp query:
+
+| Kingdom | median reference length | a 129bp query covers |
+|---|---|---|
+| Eukaryota | 131bp | 98.5% |
+| Fish | 202bp | 63.9% |
+| **Bacteria** | **373bp** | **34.6%** |
+
+v1 trained exclusively on FULL amplicons, so the model never saw a short
+fragment in training and had no reason to place one near its own parent.
+Eukaryota's references are essentially query-length and fish's are close,
+so both were largely unaffected -- bacteria, with by far the worst
+asymmetry, broke. This is the same region/length-matching principle that
+Parts 1-2 established for reference extraction, reappearing inside the
+training objective.
+
+**Cause 2 -- label granularity far too coarse.** v1 grouped by
+Taxonomy_Full truncated to depth 4, which for bacteria is order level:
+the largest single class held **418** sequences and the top five held
+343-418 each. But the evaluation is an *instance* retrieval task -- find
+a reference >=95% identical to the fragment's true source, inside the top
+10. Training the model to make 418 different sequences mutually
+indistinguishable destroys exactly the distinctions the task needs.
+
+Notably, v1's loss still fell (1.489 -> 1.274) while recall collapsed:
+collapsing coarse clusters is an easy way to reduce a coarse-label
+contrastive loss. **A falling loss was not evidence the right thing was
+being learned** -- worth recording, since loss was the only within-training
+signal available.
+
+**Cause 3 -- train/test contamination.** v1 fine-tuned on the entire
+5,000-record table, which includes the 1,000 records the evaluation holds
+out to generate test fragments. This inflates fine-tuned scores, so it
+cannot explain the regression -- but it does mean **v1's fish (+20.4pp)
+and eukaryota (+6.7pp) gains are partly unearned** and are not
+apples-to-apples until re-run (see Section 76).
+
+## 73. The fix
+
+`src/finetune_dnabert_fragment.py` (new module; `finetune_dnabert.py` is
+left untouched so Part 11 stays reproducible) changes what the objective
+is applied to, not the objective's mathematics --
+`supervised_contrastive_loss` and `mean_pool` are imported and reused
+unchanged:
+
+- **Fragment <-> full-amplicon views.** Every training pair is a random
+  118-140bp fragment against the full reference it came from, so the
+  model directly optimizes the fragment->full retrieval it is actually
+  asked to perform.
+- **Instance-level labels.** The class is the individual reference, not
+  its taxon. Exact-duplicate sequences share a label so they count as
+  positives rather than false negatives -- this matters here: the 4,000
+  training references contain only **2,909 distinct sequences** (27% are
+  exact duplicates, consistent with the database redundancy documented in
+  Parts 3-4).
+- **Train split only.** Training sequences come from the evaluation's own
+  split function (same seed-42 split), so the held-out references are
+  genuinely unseen.
+
+## 74. Result
+
+Same held-out fragments, same frozen baseline, same 2-epoch budget as v1
+-- only the three fixes differ:
+
+| Metric | v1 (broken) | **v2 (corrected)** | Frozen baseline |
+|---|---|---|---|
+| Recall@1 | 2.5% | **69.8%** | -- |
+| Recall@5 | 5.1% | **76.8%** | -- |
+| Recall@10 | 7.9% | **79.2%** | 17.1% |
+| Mean loss, epoch 1 -> 2 | 1.489 -> 1.274 | 0.746 -> 0.313 | -- |
+
+**+62.1pp over the frozen baseline**, and a 10x improvement on v1.
+Bacteria goes from the one kingdom fine-tuning hurt to the largest
+measured gain in the project. The loss curve behaving completely
+differently (falling to 0.31 rather than stalling at 1.27) is consistent
+with the diagnosis: v1's objective was easy to satisfy without learning
+anything useful for retrieval; v2's is not.
+
+## 75. Speed work (applies to later runs, not to the result above)
+
+Two CPU speedups were added while the v2 run was already in flight, so
+**the v2 result above was produced by full fine-tuning on 8 threads** --
+they did not affect it, and are recorded here for later runs:
+
+- `torch.set_num_threads(os.cpu_count())` -- torch defaulted to 8 of this
+  machine's 16 cores in both training and evaluation.
+- `TRAINABLE_TOP_LAYERS = 4` -- freezes all but the top 4 transformer
+  layers, shrinking the backward pass (the dominant CPU cost). Also
+  better practice on this data size: updating all 117M parameters against
+  ~4,000 references is over-parameterized and risks damaging the
+  pretrained representation.
+- The evaluation now reuses the already-measured frozen bacteria baseline
+  (17.1%, same split, same frozen model) instead of recomputing 5,000
+  embeddings -- the same reuse-a-saved-result pattern Part 4 used for
+  Task 3's lambda sweep.
+
+(Increasing dropout was considered and rejected: it is a regularizer and
+adds no speed -- it does not reduce work per step.)
+
+## 76. What's established vs. still open
+
+- **Established**: bacteria's regression was not a hyperparameter
+  accident but three concrete, measurable design errors, and correcting
+  them turns a -9.2pp regression into a +62.1pp gain on an uncontaminated
+  held-out split.
+- **Still open**: fish and eukaryota were NOT re-run with the corrected
+  trainer, so their Part 11 numbers remain contaminated (Cause 3) and
+  likely overstated. They should be re-run with
+  `finetune_dnabert_fragment.py` before any of the three are compared
+  against each other or reported as final. Whether any of this changes
+  end-to-end pipeline results is also still unmeasured -- BM25 is the
+  primary retriever in production, with embeddings feeding only MMR's
+  diversity signal, which is exactly what the next roadmap item
+  (BM25+MMR vs BM25+RRF) will determine.
+
+## 77. Files and commands for this part
+
+**New files:** `src/finetune_dnabert_fragment.py`,
+`models/dnaberts_finetuned_bacteria_v2/` (gitignored),
+`data/SILVA results/finetune_bacteria_v2.log`,
+`data/finetune_evaluation_bacteria_v2.log`.
+
+**Modified:** `src/evaluate_finetuned.py` (optional single-kingdom CLI
+args, thread setting, reuse of the measured bacteria frozen baseline).
+`src/finetune_dnabert.py` is unchanged.
+
+**Reproduce:**
+```bash
+python -m src.finetune_dnabert_fragment bacteria models/dnaberts_finetuned_bacteria_v2 2
+python -m src.evaluate_finetuned bacteria models/dnaberts_finetuned_bacteria_v2
+```
