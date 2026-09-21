@@ -98,6 +98,34 @@ report: [`Bacteria Fine-Tuning Fix Report.docx`](<Bacteria Fine-Tuning Fix Repor
 caught and fixed for bacteria; their numbers are likely inflated and
 need re-measuring with the corrected trainer (`finetune_dnabert_fragment.py`).
 
+### 5. …but the fine-tuning gain does not survive end-to-end
+
+The numbers above measure the embedding model *in isolation*. Inside the
+production pipeline, BM25 does the primary retrieval and embeddings only
+feed MMR's diversity signal — so a better embedding model cannot add
+candidates BM25 never found. Measured on the same held-out split
+(bacteria, n=1,000):
+
+| Architecture | Recall@1 | Recall@10 | Accuracy on assigned | Correct calls |
+|---|---|---|---|---|
+| BM25 alone | 78.8% | 83.5% | 90.0% | 782 |
+| **BM25 → MMR (fine-tuned) — production** | **78.8%** | **83.7%** | 90.1% | 784 |
+| BM25 → MMR (frozen embeddings) | 78.8% | 83.6% | 89.9% | 782 |
+| DNABERT alone (fine-tuned) | 69.8% | 79.2% | 89.6% | 752 |
+| BM25 + RRF (fine-tuned) | 75.2% | 83.3% | **91.2%** | **791** |
+
+Fine-tuning moves the production pipeline by **+2 correct calls per
+1,000** (782 → 784), despite improving the embedding model itself by
+62 percentage points. BM25 alone already accounts for nearly all
+end-to-end performance. Fine-tuning's one real contribution here is
+candidate-set diversity (redundancy 0.877 → 0.705, which is exactly what
+MMR exists to improve).
+
+**MMR vs. RRF:** RRF makes 7 more correct calls and is 1.1pp more
+accurate, but loses 3.6pp of Recall@1 *and* requires running the
+embedding model at query time — whereas BM25 → MMR needs embeddings only
+on the precomputable reference side. **BM25 → MMR stays in production.**
+
 ## Quick start
 
 ```bash
@@ -141,6 +169,9 @@ python -m src.run_tara_16s_v4v5_experiment    # Bacteria/Archaea, Tara Oceans
 # Fine-tuning (per kingdom), ~40 min CPU each
 python -m src.finetune_dnabert_fragment bacteria models/dnaberts_finetuned_bacteria 2
 python -m src.evaluate_finetuned bacteria models/dnaberts_finetuned_bacteria
+
+# BM25 / MMR / RRF end-to-end, frozen vs fine-tuned embeddings, ~12 min CPU
+python -m src.finetuned_architecture_evaluation
 ```
 
 ## Project structure
@@ -158,7 +189,9 @@ src/
                                Alternative model embeddings (comparison only)
 
   finetune_dnabert_fragment.py  Per-kingdom fine-tuning (corrected)
-  evaluate_finetuned.py         Fine-tuned vs. frozen evaluation
+  evaluate_finetuned.py         Fine-tuned vs. frozen, isolated retrieval
+  finetuned_architecture_evaluation.py
+                               BM25 / MMR / RRF end-to-end, frozen vs. fine-tuned
 
   extract_amplicon_region*.py  Primer-based reference region extraction
   run_tara_*_experiment.py     Real-read pipeline runs per kingdom
@@ -187,8 +220,9 @@ models/                       Fine-tuned model checkpoints (gitignored)
 | 3 | Best model + BM25 + MMR + region change | ⏳ Blocked on #2 |
 | 4 | Extend beyond fish | ✅ Done — validated + run on real data, 3 kingdoms |
 | 5 | Unknown-DNA best-guess matching | ✅ Done — tiered confidence decision |
-| 6 | Fine-tune DNABERT-S per kingdom | ✅ Done — bacteria corrected (+62.1pp); fish/eukaryota need re-running |
-| 7 | BM25+MMR vs. BM25+RRF on all 3 datasets | 🔜 Next up |
+| 6 | Fine-tune DNABERT-S per kingdom | ✅ Done — bacteria corrected (+62.1pp isolated); fish/eukaryota need re-running |
+| 7 | BM25+MMR vs. BM25+RRF on the fine-tuned model | ✅ Done (bacteria) — MMR wins on cost; gain doesn't survive end-to-end |
+| 8 | Re-run items 6–7 for fish and eukaryota | 🔜 Next up |
 
 ## Tests
 

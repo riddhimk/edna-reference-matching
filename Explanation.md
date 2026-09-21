@@ -1801,3 +1801,135 @@ args, thread setting, reuse of the measured bacteria frozen baseline).
 python -m src.finetune_dnabert_fragment bacteria models/dnaberts_finetuned_bacteria_v2 2
 python -m src.evaluate_finetuned bacteria models/dnaberts_finetuned_bacteria_v2
 ```
+
+---
+
+# Part 13: Does fine-tuning survive end-to-end? (BM25 / MMR / RRF on the fine-tuned model)
+
+Part 12 measured the fine-tuned bacteria model with embedding-only
+retrieval (plain FAISS cosine): Recall@10 17.1% -> 79.2%. But that is not
+how the model is deployed. In the production pipeline BM25 performs the
+primary retrieval and the embeddings supply only MMR's diversity signal,
+so the +62pp gain might contribute nothing in practice. This part
+measures that, and simultaneously settles the professor's remaining
+roadmap item -- BM25+MMR vs BM25+RRF -- now with a much stronger
+embedding model than the earlier fish-data comparison had.
+
+## 78. Design
+
+`src/finetuned_architecture_evaluation.py` reuses `final_evaluation.py`'s
+A/B/C/D structure on the bacteria held-out split, running each
+architecture through the same FROZEN nucleotide reranker and the same
+calibrated 95%-identity threshold:
+
+    A.  BM25 (k=6)                        -> reranker   [embedding-independent]
+    B.  BM25 -> MMR (lambda=0.5)          -> reranker   [frozen | fine-tuned]
+    C.  DNABERT alone                     -> reranker   [frozen | fine-tuned]
+    D.  RRF (DNABERT + BM25, k_const=10)  -> reranker   [frozen | fine-tuned]
+
+B, C and D each run twice -- once per embedding set -- so the ONLY
+variable between paired arms is frozen vs. fine-tuned embeddings. A runs
+once because BM25 is purely lexical and uses no embeddings at all, making
+it the invariant reference point. The held-out fragments come from the
+same seed-42 split the fine-tuning excluded from training, so the
+fine-tuned model has never seen these fragments' source references.
+
+## 79. Results (n = 1,000 held-out fragments)
+
+| Architecture | Recall@1 | Recall@10 | Assigned | Accuracy on assigned | Correct calls | Candidate redundancy |
+|---|---|---|---|---|---|---|
+| A: BM25 alone | 78.8% | 83.5% | 869 | 90.0% | 782 | 0.900 |
+| B: BM25 -> MMR (frozen) | 78.8% | 83.6% | 870 | 89.9% | 782 | 0.877 |
+| **B: BM25 -> MMR (fine-tuned)** | **78.8%** | **83.7%** | **870** | 90.1% | 784 | **0.705** |
+| C: DNABERT alone (frozen) | 7.0% | 17.1% | 207 | 74.9% | 155 | 0.758 |
+| C: DNABERT alone (fine-tuned) | 69.8% | 79.2% | 839 | 89.6% | 752 | 0.783 |
+| D: RRF (frozen) | 12.2% | 82.9% | 867 | 90.0% | 780 | 0.662 |
+| D: RRF (fine-tuned) | 75.2% | 83.3% | 867 | **91.2%** | **791** | 0.745 |
+
+## 80. Finding 1: the fine-tuning gain does NOT survive end-to-end
+
+Comparing the paired B arms -- the production architecture -- Recall@10
+moves 83.6% -> 83.7% and correct calls 782 -> 784 out of 1,000. That is
+within noise, despite the very same model improving 17.1% -> 79.2% in
+isolation (arm C).
+
+The reason is structural, not a measurement problem: **MMR only reorders
+candidates within the pool BM25 already retrieved.** A better embedding
+model cannot introduce a candidate BM25 never surfaced, so once BM25 is
+the primary retriever, embedding quality is largely bounded out of the
+result. Arm A (BM25 with no embeddings anywhere) already achieves 83.5%
+Recall@10 and 782 correct calls -- essentially the whole of the
+production pipeline's performance.
+
+This is a genuinely important cost/benefit finding: ~75 minutes of CPU
+fine-tuning buys +2 correct calls per 1,000 fragments **in the current
+architecture**. The same fine-tuning would matter enormously in an
+architecture where the embedding model does the retrieving.
+
+The one measurable benefit to B is to MMR's actual stated purpose:
+candidate-set redundancy falls 0.877 -> 0.705, i.e. the fine-tuned
+embeddings do produce a substantially more diverse candidate set, which
+is what MMR was added to do (Part 4/Task 3). That is a real improvement,
+just not one that moves Recall or accuracy here.
+
+## 81. Finding 2: fine-tuning rescues RRF
+
+RRF's Recall@1 goes 12.2% -> 75.2%. With frozen embeddings, RRF fuses a
+weak ranked list (arm C frozen: 7.0% Recall@1) into a strong one and
+corrupts the top rank -- exactly the Stage 2 finding that originally
+disqualified RRF ("ties BM25 on Recall@10 while costing Recall@1"). Once
+the embedding list is competitive, that damage largely disappears. So
+the earlier case against RRF was partly an artifact of the embedding
+model being weak, which is worth recording: the Stage 2 conclusion was
+correct for the model it was measured on, not a permanent property of RRF.
+
+## 82. Finding 3: BM25 -> MMR still wins, but the margin is now a genuine trade-off
+
+With the fine-tuned model, MMR vs RRF is no longer a blowout:
+
+- **RRF**: 7 more correct calls (791 vs 784), +1.1pp accuracy on assigned
+  (91.2% vs 90.1%).
+- **MMR**: +3.6pp Recall@1 (78.8% vs 75.2%), marginally higher Recall@10,
+  3 more fragments assigned.
+
+The deciding factor is cost, not accuracy: **RRF requires running the
+embedding model at query time** (it needs a DNABERT ranked list per
+query), whereas BM25 -> MMR needs embeddings only on the reference side,
+which are precomputed once. For a ~1pp accuracy difference, that is not
+a good trade. **BM25 -> MMR remains the production recommendation** --
+the same verdict as Task 4 reached on fish data, but now established to
+hold even when the embedding model is dramatically stronger, which is a
+stronger claim than Task 4 could make.
+
+## 83. What's established vs. still open
+
+- **Established**: fine-tuning's large isolated gain is almost entirely
+  absorbed by the architecture; BM25 alone accounts for nearly all
+  production performance; RRF's known Recall@1 weakness was an artifact
+  of embedding quality; MMR remains the right production choice on cost
+  grounds.
+- **Still open**: this was run on bacteria only, because it is the only
+  kingdom with a correctly fine-tuned model (fish and eukaryota still
+  carry Part 12's contamination issue). Whether the same
+  "architecture absorbs the gain" conclusion holds for fish -- where
+  BM25's own baseline is different -- is unmeasured. Also unmeasured:
+  whether an architecture that lets the fine-tuned embeddings do more of
+  the retrieving (e.g. widening the BM25 pool and letting MMR select
+  more aggressively, or fusing at the pool stage rather than the top-10
+  stage) could convert any of that isolated +62pp into real end-to-end
+  gain.
+
+## 84. Files and commands for this part
+
+**New files:** `src/finetuned_architecture_evaluation.py`,
+`data/Finetuned architecture evaluation/results.json` + `results.csv`,
+`data/finetuned_architecture_evaluation.log`.
+
+**Modified:** none of the pipeline or frozen artifacts. BM25Index,
+mmr_select, fuse_top_k and rerank_candidates are all imported and called
+unmodified.
+
+**Reproduce:**
+```bash
+python -m src.finetuned_architecture_evaluation   # ~12 min on CPU
+```
