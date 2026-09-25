@@ -11,7 +11,7 @@ three kingdoms: fish, bacteria/archaea, and eukaryotic plankton.
 Given a short (~120bp) DNA read from a water sample, the pipeline finds
 the closest match in a reference database and reports a confidence-tiered
 decision — a confident species call, a lower-confidence best guess, or
-"no match" — rather than forcing an answer the evidence doesn't support.
+"no match" — rather than forcing an answer the evidence doesn't support. 
 
 ```
 Read
