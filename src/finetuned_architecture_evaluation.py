@@ -30,11 +30,14 @@ itself excluded from training (so the fine-tuned model has never seen
 these fragments' source references).
 
 Usage:
-    python -m src.finetuned_architecture_evaluation
+    python -m src.finetuned_architecture_evaluation [kingdom] [finetuned_model_dir]
+    kingdom in {bacteria, fish, eukaryota}, defaults to bacteria for
+    backward compatibility with the original (bacteria-only) invocation.
 """
 import csv
 import json
 import os
+import sys
 import time
 from typing import Dict, List
 
@@ -53,11 +56,31 @@ from .mmr_lambda_sweep import redundancy_of_sets
 
 torch.set_num_threads(os.cpu_count() or 8)
 
-KINGDOM = "bacteria"
-FINETUNED_MODEL_DIR = "models/dnaberts_finetuned_bacteria_v2"
-OUT_DIR = "data/Finetuned architecture evaluation"
+DEFAULT_FINETUNED_MODEL_DIR = {
+    "bacteria": "models/dnaberts_finetuned_bacteria_v2",
+    "fish": "models/dnaberts_finetuned_fish_v2",
+    "eukaryota": "models/dnaberts_finetuned_eukaryota_v2",
+}
+DEFAULT_OUT_DIR = {
+    "bacteria": "data/Finetuned architecture evaluation",
+    "fish": "data/Finetuned architecture evaluation/fish",
+    "eukaryota": "data/Finetuned architecture evaluation/eukaryota",
+}
 RRF_K_CONST = 10          # Stage 2's selected value -- not re-swept here
 EMBED_BATCH = 32
+
+
+def get_split(kingdom: str):
+    """Mirrors evaluate_finetuned.get_split() so this script measures the
+    IDENTICAL held-out split each kingdom's fine-tuned checkpoint was
+    trained/evaluated against."""
+    if kingdom == "fish":
+        from .stage0_diagnostics import build_holdout_split
+        return build_holdout_split()
+    from .other_kingdom_diagnostics import build_holdout_split
+    from .evaluate_finetuned import REF_TABLES
+    ref_table_csv, ref_emb_npy, ref_ids_csv = REF_TABLES[kingdom]
+    return build_holdout_split(ref_table_csv, ref_emb_npy, ref_ids_csv)
 
 
 def _is_hit(candidate_seq: str, true_seq: str) -> bool:
@@ -162,15 +185,14 @@ def evaluate_arm(name: str, per_fragment_lists: List[List[int]], per_fragment_sc
     return result
 
 
-def main():
-    os.makedirs(OUT_DIR, exist_ok=True)
-    print("=== Does fine-tuning change END-TO-END pipeline results? (bacteria) ===")
+def main(kingdom: str = "bacteria", finetuned_model_dir: str = None, out_dir: str = None):
+    finetuned_model_dir = finetuned_model_dir or DEFAULT_FINETUNED_MODEL_DIR[kingdom]
+    out_dir = out_dir or DEFAULT_OUT_DIR[kingdom]
+    os.makedirs(out_dir, exist_ok=True)
+    print(f"=== Does fine-tuning change END-TO-END pipeline results? ({kingdom}) ===")
     print("A: BM25 | B: BM25->MMR | C: DNABERT alone | D: RRF(DNABERT+BM25) -- each through the frozen reranker\n")
 
-    from .other_kingdom_diagnostics import build_holdout_split
-    from .evaluate_finetuned import REF_TABLES
-    ref_table_csv, ref_emb_npy, ref_ids_csv = REF_TABLES[KINGDOM]
-    split = build_holdout_split(ref_table_csv, ref_emb_npy, ref_ids_csv)
+    split = get_split(kingdom)
 
     train_ids, train_seqs = split["train_ids"], split["train_seqs"]
     synth_seqs, synth_true_seq = split["synth_seqs"], split["synth_true_seq"]
@@ -184,7 +206,7 @@ def main():
     print("Embedding holdout fragments with FROZEN model...")
     frozen_query_emb = l2_normalize(_embed_all(frozen_embed, synth_seqs, "frozen-frags"))
 
-    ft_embed = load_finetuned_embed_fn(FINETUNED_MODEL_DIR)
+    ft_embed = load_finetuned_embed_fn(finetuned_model_dir)
     print("Embedding references with FINE-TUNED model...")
     ft_ref_emb = l2_normalize(_embed_all(ft_embed, train_seqs, "ft-refs"))
     print("Embedding holdout fragments with FINE-TUNED model...")
@@ -235,25 +257,27 @@ def main():
         results.append(evaluate_arm(name, lists_, scores_, train_ids, train_seqs,
                                     synth_seqs, synth_true_seq, red_emb, train_id_to_seq))
 
-    with open(f"{OUT_DIR}/results.json", "w") as f:
-        json.dump({"kingdom": KINGDOM, "n_holdout_fragments": n,
-                   "finetuned_model": FINETUNED_MODEL_DIR,
+    with open(f"{out_dir}/results.json", "w") as f:
+        json.dump({"kingdom": kingdom, "n_holdout_fragments": n,
+                   "finetuned_model": finetuned_model_dir,
                    "identity_threshold": FROZEN_IDENTITY_THRESHOLD,
                    "rrf_k_const": RRF_K_CONST, "architectures": results}, f, indent=2)
-    with open(f"{OUT_DIR}/results.csv", "w", newline="") as f:
+    with open(f"{out_dir}/results.csv", "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=list(results[0].keys()))
         w.writeheader()
         w.writerows(results)
 
-    print("\n=== Summary (bacteria, n=%d held-out fragments) ===" % n)
+    print(f"\n=== Summary ({kingdom}, n={n} held-out fragments) ===")
     print(f"{'architecture':26s} {'R@1':>7s} {'R@10':>7s} {'assigned':>9s} {'accuracy':>9s}")
     for r in results:
         acc = f"{r['accuracy_on_assigned']:.3f}" if r["accuracy_on_assigned"] is not None else "NA"
         print(f"{r['architecture']:26s} {r['recall_at_1']:7.3f} {r['recall_at_10']:7.3f} "
               f"{r['pct_assigned']:9.3f} {acc:>9s}")
-    print("\nOutputs written to:", OUT_DIR)
+    print("\nOutputs written to:", out_dir)
     return results
 
 
 if __name__ == "__main__":
-    main()
+    _kingdom = sys.argv[1] if len(sys.argv) > 1 else "bacteria"
+    _model_dir = sys.argv[2] if len(sys.argv) > 2 else None
+    main(_kingdom, _model_dir)

@@ -1933,3 +1933,155 @@ unmodified.
 ```bash
 python -m src.finetuned_architecture_evaluation   # ~12 min on CPU
 ```
+
+---
+
+# Part 14: Closing the loop — fish and eukaryota on the corrected trainer
+
+Part 13 ended with one clearly stated gap: the "architecture absorbs the
+fine-tuning gain" conclusion had been measured on bacteria only, because
+bacteria was the only kingdom with a correctly fine-tuned model. Fish and
+eukaryota still carried Part 11's v1 checkpoints, which were trained on
+the entire reference table including the evaluation's own holdout. This
+part re-runs both kingdoms through `finetune_dnabert_fragment.py` and the
+end-to-end architecture comparison, so all three kingdoms are finally
+measured on the same corrected footing.
+
+## 85. What was expected, and why that expectation was wrong
+
+The README footnote carried an explicit prediction: fish's +20.4pp and
+eukaryota's +6.7pp were "likely inflated" by the train/test contamination
+and would come DOWN when re-measured cleanly. That prediction was wrong
+in both cases.
+
+| Kingdom | v1 (contaminated) | v2 (corrected) |
+|---|---|---|
+| Fish | 58.2% -> 78.6% (+20.4pp) | 58.2% -> **93.4%** (+35.2pp) |
+| Eukaryota | 62.9% -> 69.7% (+6.7pp) | 62.9% -> **69.7%** (+6.7pp) |
+
+Fish went UP by nearly 15 percentage points, and eukaryota reproduced its
+old number exactly. The reason is that Part 12 diagnosed and fixed THREE
+causes, not one. Removing contamination should indeed lower a score, but
+the other two fixes -- training on read-length fragments paired with
+their own full amplicon, and instance-level instead of coarse-taxonomy
+labels -- are worth substantially more than the contamination was
+inflating. For fish, whose ~120bp queries cover only ~64% of its ~204bp
+amplicons, the fragment-pairing fix is the dominant term.
+
+Eukaryota landing on the identical 69.7% deserves a caveat rather than a
+conclusion: its reference pool is 853 records, so the holdout yields only
+89 test fragments and one fragment is worth 1.1pp. 56 -> 62 hits is what
+both runs produced. The frozen baseline being identical is expected (same
+deterministic seed-42 split, recomputed the same way both times); it is
+the fine-tuned side landing on the same 62 hits that is coincidence.
+
+Training cost, measured rather than estimated: fish 5,598.7s (93 min,
+3,318 steps, mean loss 0.2682 -> 0.0870), eukaryota 1,407.4s (23 min,
+170 steps, 0.8216 -> 0.3140), against bacteria's earlier 4,484.7s
+(75 min, 1,000 steps, 0.746 -> 0.313). The README's old "~40 min per
+kingdom" figure was wrong for every kingdom and has been corrected.
+
+## 86. End-to-end: the conclusion holds, and hardens
+
+`src/finetuned_architecture_evaluation.py` was hardcoded to bacteria, so
+it was generalised to take a kingdom argument (defaulting to bacteria, so
+Part 13's invocation still reproduces), reusing the same `get_split()`
+convention as `evaluate_finetuned.py` -- fish from `stage0_diagnostics`,
+the other two from `other_kingdom_diagnostics`. Nothing in the pipeline
+itself changed: BM25Index, mmr_select, fuse_top_k and rerank_candidates
+are still imported and called unmodified.
+
+Production arm (BM25 -> MMR -> reranker), frozen vs fine-tuned:
+
+| Kingdom | n | Frozen: correct calls | Fine-tuned: correct calls | Change |
+|---|---|---|---|---|
+| Bacteria | 1,000 | 782 | 784 | +2 |
+| Fish | 1,000 | 936 | 936 | **0** |
+| Eukaryota | 89 | 63 | 63 | **0** |
+
+For fish and eukaryota the production arm is byte-identical across every
+metric -- Recall@1, Recall@10, assigned count, accuracy on assigned --
+frozen versus fine-tuned. Fish's embedding model improved by +35.2pp in
+isolation and changed the production pipeline by nothing at all. This is
+a stronger version of Part 13's bacteria result, not a weaker one: there
+the gain was merely small, here it is exactly zero.
+
+The mechanism is the same one Part 13 identified. BM25 bounds the
+candidate pool, and embeddings only reorder within it. Fish makes this
+unusually visible: BM25 alone scores Recall@1 93.7% and Recall@10 94.6%,
+and those two numbers are nearly equal -- when BM25 finds the right
+reference it puts it at rank 1, so there is almost nothing left for MMR
+to reorder. Fine-tuned DNABERT alone reaches 93.4% Recall@10, genuinely
+competitive with the full pipeline, and still adds nothing, because it
+cannot contribute candidates BM25 never retrieved.
+
+Fine-tuning's one real, reproducible contribution is candidate-set
+diversity, in all three kingdoms: redundancy 0.877 -> 0.705 (bacteria),
+0.822 -> 0.767 (fish), 0.720 -> 0.556 (eukaryota).
+
+## 87. MMR vs RRF, now settled across all three kingdoms
+
+Part 13 flagged that RRF became competitive once the embedding model was
+strong, and left open whether fish -- with a different BM25 baseline --
+might be the case where RRF finally wins. It is not.
+
+| Kingdom | MMR R@1 / correct | RRF R@1 / correct |
+|---|---|---|
+| Bacteria | 78.8% / 784 | 75.2% / 791 |
+| Fish | 93.7% / 936 | 92.1% / 936 |
+| Eukaryota | 70.8% / 63 | 68.5% / 63 |
+
+RRF buys 7 correct calls on bacteria at the cost of 3.6pp Recall@1; on
+fish it ties on correct calls and still loses 1.6pp Recall@1; on
+eukaryota it ties outright and loses 2.3pp Recall@1. No kingdom shows RRF
+ahead on both accuracy and Recall@1, and RRF additionally requires
+running the embedding model at query time, whereas BM25 -> MMR needs
+embeddings only on the precomputable reference side. **BM25 -> MMR
+remains the production recommendation in all three kingdoms.**
+
+Part 13's observation about RRF also replicates: its Recall@1 weakness
+tracks embedding quality, not RRF itself. Frozen -> fine-tuned takes
+RRF's Recall@1 from 12.2% -> 75.2% (bacteria) and 51.4% -> 92.1% (fish).
+
+## 88. What's established vs. still open
+
+- **Established**: all three kingdoms are now fine-tuned with the
+  corrected trainer on genuinely held-out splits; the isolated gains are
+  +62.1pp (bacteria), +35.2pp (fish), +6.7pp (eukaryota); none of them
+  reach the production pipeline, which is bounded by BM25's candidate
+  pool; MMR stays in production everywhere; RRF's Recall@1 weakness is an
+  embedding-quality artifact.
+- **Still open, and unchanged from Part 13**: whether an architecture that
+  lets the fine-tuned embeddings do more of the retrieving -- widening the
+  BM25 pool, or fusing at the pool stage rather than the top-10 stage --
+  could convert any of the isolated gain into real end-to-end gain. Every
+  architecture measured so far takes BM25's pool as given, so none of them
+  can answer this.
+- **Weakest evidence**: eukaryota, at n=89 held-out fragments. Its
+  reference pool (853 records) is too small for a precise delta. Growing
+  that pool would need a wider 18S V9 extraction than the 1389F/1510R
+  Tara primers yielded.
+
+## 89. Files and commands for this part
+
+**Modified:** `src/finetuned_architecture_evaluation.py` (kingdom
+argument, per-kingdom output dirs, `get_split()` helper; bacteria default
+preserved), `data/README.md` (was stale since Part 1), `README.md`
+(corrected fine-tuning and end-to-end tables, measured training times,
+roadmap items 6-8).
+
+**New:** `models/dnaberts_finetuned_fish_v2/`,
+`models/dnaberts_finetuned_eukaryota_v2/` (both gitignored),
+`data/Finetuned architecture evaluation/fish/` and `/eukaryota/`
+(results.json + results.csv), `data/logs/` (training and evaluation
+console logs for both kingdoms).
+
+**Reproduce:**
+```bash
+python -m src.finetune_dnabert_fragment fish models/dnaberts_finetuned_fish_v2 2          # ~93 min
+python -m src.finetune_dnabert_fragment eukaryota models/dnaberts_finetuned_eukaryota_v2 2 # ~23 min
+python -m src.evaluate_finetuned fish models/dnaberts_finetuned_fish_v2
+python -m src.evaluate_finetuned eukaryota models/dnaberts_finetuned_eukaryota_v2
+python -m src.finetuned_architecture_evaluation fish
+python -m src.finetuned_architecture_evaluation eukaryota
+```
