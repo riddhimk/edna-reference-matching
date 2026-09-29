@@ -120,6 +120,18 @@ REF_TABLES = {
         "data/SILVA results/silva_18s_v9_tara_ref_embeddings.npy",
         "data/SILVA results/silva_18s_v9_tara_ref_ids.csv",
     ),
+    # Larger 18S V9 pool (Part 2's 1391F/EukBr extraction, see
+    # src/build_large_eukaryota_table.py). The Tara-primer table above is only
+    # 853 records, which caps its held-out split at 89 test fragments -- too
+    # few to measure precision/recall/F1 meaningfully. This one is 25,000
+    # records, so the same 80/20 split yields 5,000 held-out references.
+    # Kept as a SEPARATE key so Part 9's real-read results and Part 14's
+    # eukaryota numbers, which both depend on the Tara table, stay reproducible.
+    "eukaryota_large": (
+        "data/SILVA results/silva_18s_v9_large_reference_table.csv",
+        "data/SILVA results/silva_18s_v9_large_ref_embeddings.npy",
+        "data/SILVA results/silva_18s_v9_large_ref_ids.csv",
+    ),
 }
 
 

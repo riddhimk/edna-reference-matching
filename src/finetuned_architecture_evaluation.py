@@ -60,11 +60,13 @@ DEFAULT_FINETUNED_MODEL_DIR = {
     "bacteria": "models/dnaberts_finetuned_bacteria_v2",
     "fish": "models/dnaberts_finetuned_fish_v2",
     "eukaryota": "models/dnaberts_finetuned_eukaryota_v2",
+    "eukaryota_large": "models/dnaberts_finetuned_eukaryota_large",
 }
 DEFAULT_OUT_DIR = {
     "bacteria": "data/Finetuned architecture evaluation",
     "fish": "data/Finetuned architecture evaluation/fish",
     "eukaryota": "data/Finetuned architecture evaluation/eukaryota",
+    "eukaryota_large": "data/Finetuned architecture evaluation/eukaryota_large",
 }
 RRF_K_CONST = 10          # Stage 2's selected value -- not re-swept here
 EMBED_BATCH = 32
