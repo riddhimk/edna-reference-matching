@@ -33,6 +33,8 @@ from functools import lru_cache
 from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 csv.field_size_limit(10 ** 9)
 
@@ -192,7 +194,9 @@ def index():
         "name": "eDNA-TaxAI Results API",
         "inference": False,
         "note": "Read-only. Serves results written by prior experiment runs.",
+        "dashboard": "/app",
         "endpoints": {
+            "GET /app": "React results dashboard",
             "GET /health": "service status and which result files are present",
             "GET /kingdoms": "kingdoms and what data exists for each",
             "GET /metrics/prf": "POC-6 precision/recall/F1 (?kingdom, ?n, ?arm)",
@@ -408,7 +412,7 @@ def reads(
     }
 
 
-@app.get("/reads/{dataset}/summary", summary="Tier counts, score stats, top organisms")
+@app.get("/reads/{dataset}/summary", summary="Tier counts, score stats, top organisms", tags=["reads"])
 def reads_summary(dataset: str, top: int = Query(10, ge=1, le=100)):
     if dataset not in READ_DATASETS:
         raise HTTPException(404, f"unknown dataset '{dataset}'. See GET /reads/datasets")
@@ -454,3 +458,21 @@ def reads_summary(dataset: str, top: int = Query(10, ge=1, le=100)):
         "top": [{"value": v, "reads": c, "pct_of_total": round(100 * c / len(rows), 2)}
                 for v, c in top_labels],
     }
+
+
+# --------------------------------------------------------------------------
+# Dashboard (mounted last so it cannot shadow any API route)
+#
+# The React app is served from this same origin deliberately: it removes the
+# CORS problem entirely and means one process serves both data and UI.
+# --------------------------------------------------------------------------
+
+WEB_DIR = _abs("web")
+
+if os.path.isdir(WEB_DIR):
+    app.mount("/app", StaticFiles(directory=WEB_DIR, html=True), name="dashboard")
+
+    @app.get("/dashboard", include_in_schema=False)
+    def dashboard_redirect():
+        """Convenience alias so /dashboard and /app both work."""
+        return FileResponse(os.path.join(WEB_DIR, "index.html"))
