@@ -11,7 +11,7 @@ Examples:
     python run_pipeline.py embed-reads
     python run_pipeline.py build-index
     python run_pipeline.py query
-    python run_pipeline.py decide
+    
 """
 import argparse
 import sys
