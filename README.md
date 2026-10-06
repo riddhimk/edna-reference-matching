@@ -205,6 +205,85 @@ Run the test suite (offline, no model download required):
 pytest
 ```
 
+## API: upload, history, analytics, chatbot
+
+One process serves the saved results, analysis of new uploads, and the
+dashboard:
+
+```bash
+uvicorn src.api:app --host 127.0.0.1 --port 8000   # one process: the job queue is in-process
+# web app: http://127.0.0.1:8000/  (opens /app/: upload & runs, project results, Assistant on every page)
+# API docs: http://127.0.0.1:8000/docs
+```
+
+Only the chatbot needs a key. It uses Gemini when one is available —
+`GEMINI_API_KEY`, or an `api key: ...` line in `api-key.txt` in the project
+root (gitignored) — and Claude (`ANTHROPIC_API_KEY`) otherwise; force one with
+`EDNA_CHAT_PROVIDER=gemini|anthropic`. Gemini defaults to `gemini-3.8-flash`
+(`EDNA_GEMINI_MODEL`) and falls back to `gemini-3.5-flash`, then
+`gemini-3.1-flash-lite` (`EDNA_GEMINI_FALLBACKS`) when a model is overloaded,
+out of quota, or retired for the key.
+
+| Capability | Endpoints |
+|---|---|
+| Upload a read file | `POST /uploads` takes a FASTQ/FASTA file (gzip OK), returns `202` and runs it in the background; the reference set is detected from the reads (pass `marker` only to override). Poll `GET /runs/{id}` for progress. `GET /markers` lists the reference sets. |
+| Results for one upload | `GET /runs/{id}` (all findings + chart data), `GET /runs/{id}/reads` (filter by decision, identity, taxon), `GET /runs/{id}/download` (CSV) |
+| Analytics | `GET /analytics/overview` (run history + benchmark findings), `GET /analytics/compare?run_ids=a,b` (runs side by side, taxon overlap). Charts come back as data: `{labels, series:[{name, values}]}`. |
+| Upload history / no redundant uploads | `GET /runs`, `DELETE /runs/{id}`. `POST /uploads/check` with the file's SHA-256 answers "already analysed?" before uploading. `POST /uploads` itself refuses to re-run a file already analysed against the same marker, even if renamed or gzipped, and returns the existing run instead. |
+| Project chatbot | `GET /chat/status`, `POST /chat/sessions` (optionally `{"run_id": ...}`), then `POST /chat/sessions/{id}/messages`. It answers from this project's documentation and from tools that read runs and benchmark results; it declines unrelated questions. |
+
+The reference set is chosen automatically from the reads: up to 400 distinct
+reads are compared with every set, scoring the share of their 12-mers found in
+it (best orientation, primer-trimmed where the primers are present). Measured
+on the validated real-read files, the matching set scores 0.34–0.83 and every
+other pairing at most 0.025; a set is chosen when it scores at least 0.10 and
+4× the runner-up. Reads that fit no set are still analysed against the closest
+one, but the run is flagged "no matching set" with the evidence shown. Reads
+whose primers were already removed are detected as such and used as uploaded.
+
+Marker presets pair a reference set with the read preparation validated on
+real data: `fish_16s_mitofish` (Part 4), `bacteria_16s_v4v5` (Part 10,
+515F-Y/926R trim), `eukaryota_18s_v9` (Part 9, 1389F/1510R trim). Uploads
+run the production pipeline (`final_pipeline.py`, unmodified), with
+identical reads classified once and the work spread over a process pool. On
+this machine a 5,000-read fish file takes ~40 s and a 5,000-read 16S file ~4
+min; run time scales with the number of *distinct* sequences, not reads.
+There is no size or read-count limit: a file is refused only if it is empty or
+not FASTQ/FASTA (multi-line FASTQ, gzip, lower-case/RNA bases and IUPAC codes
+are all accepted). Uploads stream to disk. `EDNA_WORKERS` sets the worker
+count (default: cores − 2). Uploads, results and chat history are kept under
+`data/app/` (`EDNA_APP_DIR`).
+
+## Cloud backup of the run history
+
+Run history (`data/app/`: each run's per-read results, one copy of each
+uploaded file, and a snapshot of the history database) is copied to the
+project's Google Drive folder with [rclone](https://rclone.org). Nothing else
+in the project is uploaded.
+
+One-time setup (opens a browser to sign in to Google; use an account with edit
+access to the folder):
+
+```bash
+~/.local/bin/rclone config create edna-drive drive scope=drive \
+    root_folder_id=1eT3ivjyrwg0JSL4eaokOWSGurkmOdLYt
+```
+
+After that, a backup runs automatically in the background whenever a run
+finishes; the Runs page shows when the last one succeeded and has a
+"Back up now" button. By hand:
+
+```bash
+python -m src.cloud_backup status   # connected? last backup?
+python -m src.cloud_backup push     # back up now
+python -m src.cloud_backup pull     # restore into data/app (stop the API first)
+```
+
+Backups only ever add files (`rclone copy`, not `sync`), so deleting a run
+locally -- or losing `data/app/` -- never deletes it from Drive. Settings:
+`EDNA_RCLONE_REMOTE` (default `edna-drive:`), `EDNA_RCLONE_BIN`,
+`EDNA_CLOUD_BACKUP=off` to disable automatic backups.
+
 ## Reproducing the headline results
 
 ```bash
@@ -240,6 +319,20 @@ src/
   mmr.py                      MMR candidate diversification
   nucleotide_rerank.py        Smith-Waterman alignment reranker
   species_lookup.py           NCBI accession → species name, cached
+
+  api.py                      JSON API over saved results; mounts the routes below
+  app_routes.py               Uploads, run history, results, analytics
+  run_analysis.py             Marker presets; runs an upload through final_pipeline
+  upload_io.py                FASTQ/FASTA (+gzip) parsing and validation
+  run_store.py                SQLite history of runs and chat sessions
+  cloud_backup.py             rclone backup of the run history to Google Drive
+  chat.py                     Project chatbot (Gemini or Claude + tools over runs/results)
+  cloud_backup.py             rclone backup of the run history to Google Drive
+
+web/                          The web app, served at /app/
+  index.html                  Page, design tokens and styles
+  app.jsx                     Shell, navigation, project-results pages
+  analysis.jsx                Upload, runs, run findings, compare, and the Assistant drawer
 
   embed_common.py             DNABERT-S embedding (production model)
   nt_embed.py / hyenadna_embed.py / genalm_embed.py
@@ -283,9 +376,10 @@ models/                       Fine-tuned model checkpoints (gitignored)
 
 ## Tests
 
-75 unit tests, all offline (no model download, no GPU, no network) —
-verify parsing, retrieval logic, decision thresholds, and pipeline
-composition, not model output.
+113 tests, all offline (no model download, no GPU, no network, no API
+key) — verify parsing, retrieval logic, decision thresholds, pipeline
+composition, the upload → run → results flow on a synthetic reference set,
+duplicate detection, and the chatbot's tool loop against a scripted client.
 
 ```bash
 pytest -q

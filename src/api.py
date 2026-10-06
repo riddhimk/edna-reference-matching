@@ -1,11 +1,18 @@
 """
-Read-only JSON API over this project's saved results.
+JSON API over this project's results, plus analysis of uploaded read files.
 
-Serves what is already on disk -- evaluation metrics, fine-tuning metadata and
-per-read classification outputs -- as JSON. It deliberately loads no model and
-performs no inference: every endpoint reads a file that a prior experiment
-wrote, so the API needs none of the ML stack (torch/faiss/transformers) and
-starts instantly.
+Two halves:
+
+  * Saved results (this module) -- evaluation metrics, fine-tuning metadata and
+    per-read classification outputs that prior experiments wrote, served as-is.
+
+  * Uploads (src/app_routes.py, src/chat.py) -- upload a FASTQ/FASTA file, run
+    it through the production pipeline in the background, browse its history,
+    results and analytics, and ask the project chatbot about any of it.
+
+Neither half loads a neural model: the production pipeline uses precomputed
+reference embeddings and never embeds reads, so the API needs none of
+torch/faiss/transformers and starts instantly.
 
 Design notes:
 
@@ -25,6 +32,10 @@ Design notes:
 Usage:
     uvicorn src.api:app --host 127.0.0.1 --port 8000
     then open http://127.0.0.1:8000/docs
+
+Run a single process (no --workers): the upload job queue is in-process.
+The chatbot needs ANTHROPIC_API_KEY (or another Anthropic SDK credential);
+every other endpoint works without it.
 """
 import csv
 import json
@@ -32,8 +43,8 @@ import os
 from functools import lru_cache
 from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.responses import FileResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 csv.field_size_limit(10 ** 9)
@@ -42,9 +53,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 app = FastAPI(
     title="eDNA-TaxAI Results API",
-    version="1.0.0",
-    description="Read-only JSON access to evaluation metrics, fine-tuning runs "
-                "and per-read classification results. No inference is performed.",
+    version="2.0.0",
+    description="Evaluation metrics, fine-tuning runs and per-read results; upload and analyse "
+                "new read files; run history, analytics and a project chatbot.",
 )
 
 # --------------------------------------------------------------------------
@@ -74,23 +85,22 @@ READ_DATASETS = {
     "fish_mitofish_reranked": {
         "path": "data/MitoFish results/read_taxonomy_results_mitofish_16s_reranked.csv",
         "kingdom": "fish", "part": "Part 4", "accession": "ERR16922870",
-        "description": "Production result: DNABERT top-10 + Smith-Waterman rerank against MitoFish 16S. "
-                       "474/5,000 assigned, 93.9% independently verified as tuna.",
+        "description": "DNABERT top-10 + Smith-Waterman rerank against MitoFish 16S.",
     },
     "fish_mitofish_embedding_only": {
         "path": "data/MitoFish results/read_taxonomy_results_mitofish_16s.csv",
         "kingdom": "fish", "part": "Part 3", "accession": "ERR16922870",
-        "description": "Pre-rerank baseline: embedding similarity only. 211/5,000 assigned, severe hubness.",
+        "description": "Pre-rerank baseline: embedding similarity only.",
     },
     "tara_bacteria_16s_v4v5": {
         "path": "data/SILVA results/tara_16s_v4v5_read_taxonomy_results.csv",
         "kingdom": "bacteria", "part": "Part 10", "accession": "ERR6090675",
-        "description": "Real Tara Oceans seawater reads vs SILVA 16S V4-V5. 3,189/4,767 assigned (66.9%).",
+        "description": "Real Tara Oceans seawater reads vs SILVA 16S V4-V5.",
     },
     "tara_eukaryota_18s_v9": {
         "path": "data/SILVA results/tara_18s_v9_read_taxonomy_results.csv",
         "kingdom": "eukaryota", "part": "Part 9", "accession": "ERR10928327",
-        "description": "Real Tara Pacific seawater reads vs SILVA 18S V9. 226/4,754 assigned (4.8%).",
+        "description": "Real Tara Pacific seawater reads vs SILVA 18S V9.",
     },
     "silva_16s_v4": {
         "path": "data/SILVA results/read_taxonomy_results_16s_v4.csv",
@@ -101,12 +111,12 @@ READ_DATASETS = {
     "silva_18s_v9": {
         "path": "data/SILVA results/read_taxonomy_results_18s_v9.csv",
         "kingdom": "eukaryota", "part": "Part 2", "accession": "ERR16922870",
-        "description": "Fish reads vs SILVA 18S V9. Superseded for the same reason; counts inflated by hubness.",
+        "description": "Fish reads vs SILVA 18S V9. Superseded for the same reason.",
     },
     "silva_full_length": {
         "path": "data/SILVA results/read_taxonomy_results.csv",
         "kingdom": "mixed", "part": "Part 1", "accession": "ERR16922870",
-        "description": "First run: full-length SILVA references. 0/5,000 assigned -- the region-mismatch finding.",
+        "description": "First run: full-length SILVA references -- the region-mismatch finding.",
     },
 }
 
@@ -188,12 +198,27 @@ def _as_float(v: str) -> Optional[float]:
 # Index / health
 # --------------------------------------------------------------------------
 
-@app.get("/", summary="API index")
-def index():
+_FAVICON = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke="#1c5cab" '
+            'stroke-width="2.4" stroke-linecap="round"><path d="M8 3c0 7 12 8 12 11s-12 4-12 11"/>'
+            '<path d="M20 3c0 7-12 8-12 11s12 4 12 11"/><path d="M10 8h8M9.5 20h9"/></svg>')
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon():
+    return Response(_FAVICON, media_type="image/svg+xml")
+
+
+@app.get("/", summary="API index (a browser is sent to the web app)")
+def index(request: Request):
+    # A person typing the bare address wants the app; scripts and curl
+    # (no text/html in Accept) still get this JSON index.
+    if "text/html" in request.headers.get("accept", ""):
+        return RedirectResponse("/app/")
     return {
         "name": "eDNA-TaxAI Results API",
-        "inference": False,
-        "note": "Read-only. Serves results written by prior experiment runs.",
+        "loads_neural_model": False,
+        "note": "Saved results are read-only. Uploaded files run through the production pipeline "
+                "(BM25 -> MMR -> Smith-Waterman) using precomputed reference embeddings.",
         "dashboard": "/app",
         "endpoints": {
             "GET /app": "React results dashboard",
@@ -208,6 +233,19 @@ def index():
             "GET /reads/datasets": "per-read result sets available",
             "GET /reads/{dataset}": "per-read rows (?decision, ?min_score, ?limit, ?offset)",
             "GET /reads/{dataset}/summary": "tier counts, score stats, top organisms",
+            "GET /markers": "marker presets an upload can be analysed against",
+            "POST /uploads/check": "has a file (by SHA-256) already been analysed?",
+            "POST /uploads": "upload FASTQ/FASTA (.gz ok) + marker; starts a background run",
+            "GET /runs": "history of analysed uploads (?marker, ?status, ?limit, ?offset)",
+            "GET /runs/{id}": "status, progress, and full findings + charts when done",
+            "GET /runs/{id}/reads": "per-read results (?decision, ?min_identity, ?taxon, ?limit, ?offset)",
+            "GET /runs/{id}/download": "per-read results as CSV",
+            "DELETE /runs/{id}": "remove a run from history",
+            "GET /analytics/overview": "run history + benchmark findings, chart-ready",
+            "GET /analytics/compare": "compare 2-10 runs (?run_ids=a,b)",
+            "POST /chat/sessions": "start a chatbot conversation (optionally about a run)",
+            "POST /chat/sessions/{id}/messages": "ask the project chatbot a question",
+            "GET /chat/sessions/{id}": "conversation transcript",
             "GET /docs": "interactive OpenAPI documentation",
         },
     }
@@ -299,6 +337,7 @@ def metrics_prf_comparison(n: int = Query(5000, description="test-set size to co
             "kingdom": k,
             "n": n,
             "fragments_per_reference": round(d["fragments_per_reference"], 4),
+            "fully_independent_samples": d["fragments_per_reference"] <= 1.05,
             "frozen": {"precision": fr["precision"], "recall": fr["recall"], "f1": fr["f1"], "tp": fr["tp"]},
             "finetuned": {"precision": ft["precision"], "recall": ft["recall"], "f1": ft["f1"], "tp": ft["tp"]},
             "delta": {
@@ -373,6 +412,7 @@ def read_datasets():
         if os.path.exists(_abs(meta["path"])):
             rows = load_csv(meta["path"])
             entry["n_reads"] = len(rows)
+            entry["n_assigned"] = sum(1 for r in rows if r.get("Confidence_Decision") == "assigned")
             entry["columns"] = list(rows[0].keys()) if rows else []
             entry["score_column"] = _score_column(rows)
         else:
@@ -458,6 +498,17 @@ def reads_summary(dataset: str, top: int = Query(10, ge=1, le=100)):
         "top": [{"value": v, "reads": c, "pct_of_total": round(100 * c / len(rows), 2)}
                 for v, c in top_labels],
     }
+
+
+# --------------------------------------------------------------------------
+# Uploads, run history, analytics and chat
+# --------------------------------------------------------------------------
+
+from .app_routes import router as _app_router  # noqa: E402  (needs the functions above defined first)
+from .chat import router as _chat_router  # noqa: E402
+
+app.include_router(_app_router)
+app.include_router(_chat_router)
 
 
 # --------------------------------------------------------------------------

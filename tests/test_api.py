@@ -24,11 +24,16 @@ def _has(rel):
     return os.path.exists(os.path.join(ROOT, rel))
 
 
+def test_browser_at_root_is_sent_to_the_app():
+    r = client.get("/", headers={"Accept": "text/html,application/xhtml+xml"}, follow_redirects=False)
+    assert r.status_code == 307 and r.headers["location"] == "/app/"
+
+
 def test_index_lists_endpoints():
     r = client.get("/")
     assert r.status_code == 200
     body = r.json()
-    assert body["inference"] is False
+    assert body["loads_neural_model"] is False
     assert "GET /metrics/prf" in body["endpoints"]
 
 

@@ -28,6 +28,16 @@ biopython>=1.81
 # Results API (src/api.py)
 fastapi>=0.110
 uvicorn[standard]>=0.27
+# File uploads (POST /uploads) -- FastAPI needs this for multipart form data.
+python-multipart>=0.0.9
+
+# Project chatbot (src/chat.py): Gemini by default, Claude as the alternative.
+# google-genai: parameters_json_schema on function declarations and
+# HttpRetryOptions need a recent 1.x+; 2.26 is what was tested.
+google-genai>=2.26
+# anthropic 1.x is required: the code uses output_config and server-side
+# refusal fallbacks.
+anthropic>=1.11
 
 # Tests
 pytest>=7.4
