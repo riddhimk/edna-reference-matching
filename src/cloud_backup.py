@@ -72,7 +72,52 @@ def _join(base: str, *parts: str) -> str:
     return base.rstrip("/") + ("" if base.endswith(":") else "/") + "/".join(parts) if parts else base
 
 
+def _ensure_config() -> None:
+    """If EDNA_RCLONE_CONFIG is set in the environment and ~/.config/rclone/rclone.conf
+    does not exist, writes the config file so rclone can authenticate."""
+    raw = os.environ.get("EDNA_RCLONE_CONFIG") or os.environ.get("RCLONE_CONFIG_CONTENT")
+    if not raw:
+        return
+    conf_path = os.environ.get("RCLONE_CONFIG", os.path.expanduser("~/.config/rclone/rclone.conf"))
+    if os.path.exists(conf_path):
+        return
+    import base64
+    try:
+        decoded = base64.b64decode(raw).decode("utf-8")
+        if "[edna-drive]" in decoded or "type = drive" in decoded:
+            raw = decoded
+    except Exception:
+        pass
+    os.makedirs(os.path.dirname(conf_path), exist_ok=True)
+    with open(conf_path, "w", encoding="utf-8") as f:
+        f.write(raw)
+
+
+def _download_rclone() -> Optional[str]:
+    local = os.path.expanduser("~/.local/bin/rclone")
+    if os.path.exists(local):
+        return local
+    try:
+        import io, urllib.request, zipfile
+        url = "https://downloads.rclone.org/rclone-current-linux-amd64.zip"
+        req = urllib.request.Request(url, headers={"User-Agent": "curl/7.88.1"})
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = resp.read()
+        z = zipfile.ZipFile(io.BytesIO(data))
+        for name in z.namelist():
+            if name.endswith("/rclone"):
+                os.makedirs(os.path.dirname(local), exist_ok=True)
+                with open(local, "wb") as f:
+                    f.write(z.read(name))
+                os.chmod(local, 0o755)
+                return local
+    except Exception:
+        return None
+    return None
+
+
 def rclone_bin() -> Optional[str]:
+    _ensure_config()
     explicit = os.environ.get("EDNA_RCLONE_BIN")
     if explicit:
         return explicit if os.path.exists(explicit) else None
@@ -80,7 +125,9 @@ def rclone_bin() -> Optional[str]:
     if found:
         return found
     local = os.path.expanduser("~/.local/bin/rclone")
-    return local if os.path.exists(local) else None
+    if os.path.exists(local):
+        return local
+    return _download_rclone()
 
 
 def _run(args: List[str], timeout: int = 3600) -> subprocess.CompletedProcess:
