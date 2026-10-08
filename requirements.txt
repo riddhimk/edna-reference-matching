@@ -30,7 +30,8 @@ fastapi>=0.110
 uvicorn[standard]>=0.27
 # File uploads (POST /uploads) -- FastAPI needs this for multipart form data.
 python-multipart>=0.0.9
-gradio>=4.40
+# gradio is managed by sdk_version in README.md on HF Spaces
+# gradio>=4.40
 
 
 # Project chatbot (src/chat.py): Claude / Anthropic (or optional Gemini).
