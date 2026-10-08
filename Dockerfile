@@ -20,11 +20,17 @@ WORKDIR $HOME/app
 COPY --chown=user:user requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
 
-# Copy application source, tests, and web frontend
+# Copy application source, data references, model metadata, tests, and web frontend
 COPY --chown=user:user src/ ./src/
 COPY --chown=user:user web/ ./web/
+COPY --chown=user:user data/ ./data/
+COPY --chown=user:user models/ ./models/
 COPY --chown=user:user tests/ ./tests/
-COPY --chown=user:user run_pipeline.py README.md AGENTS.md ./
+COPY --chown=user:user run_pipeline.py README.md AGENTS.md Explanation.md ./
+
+# Ensure runtime directory for SQLite database and run artifacts exists
+RUN mkdir -p data/app/uploads
+
 
 # Default Hugging Face Spaces port
 EXPOSE 7860

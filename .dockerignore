@@ -10,7 +10,14 @@ __pycache__
 *.fasta
 *.fastq*
 *.tsv
-data/
-models/
+data/SILVA results/silva_reference_table.csv
+data/app/*.db
+data/app/uploads/
+data/raw/
+data/embeddings/
+models/**/model.safetensors
+models/**/tokenizer.json
+models/**/tokenizer_config.json
+models/**/config.json
 api-key.txt
 *.log

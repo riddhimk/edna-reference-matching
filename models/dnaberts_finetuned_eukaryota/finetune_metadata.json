@@ -1,0 +1,19 @@
+{
+  "base_model": "multimolecule/dnaberts",
+  "ref_table_csv": "data/SILVA results/silva_18s_v9_tara_reference_table.csv",
+  "label_kind": "taxonomy_depth",
+  "taxonomy_depth": 4,
+  "n_records_total": 853,
+  "n_records_used": 844,
+  "n_classes_used": 29,
+  "epochs": 2,
+  "batch_classes": 4,
+  "batch_per_class": 4,
+  "learning_rate": 1e-05,
+  "temperature": 0.1,
+  "mean_loss_per_epoch": [
+    2.0344515924270334,
+    1.5411444054200099
+  ],
+  "train_seconds": 212.4
+}

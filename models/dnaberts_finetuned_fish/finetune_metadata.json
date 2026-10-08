@@ -1,0 +1,19 @@
+{
+  "base_model": "multimolecule/dnaberts",
+  "ref_table_csv": "data/MitoFish results/mitofish_16s_finetune_sample.csv",
+  "label_kind": "genus",
+  "taxonomy_depth": null,
+  "n_records_total": 5000,
+  "n_records_used": 4654,
+  "n_classes_used": 569,
+  "epochs": 2,
+  "batch_classes": 4,
+  "batch_per_class": 4,
+  "learning_rate": 1e-05,
+  "temperature": 0.1,
+  "mean_loss_per_epoch": [
+    1.43740657321338,
+    1.3120539599451526
+  ],
+  "train_seconds": 1517.3
+}

@@ -1,0 +1,30 @@
+{
+  "base_model": "multimolecule/dnaberts",
+  "kingdom": "fish",
+  "objective": "instance-level contrastive, fragment<->full-amplicon views",
+  "fixes_vs_v1": [
+    "trains on read-length fragments paired with their own reference (input mismatch)",
+    "instance-level labels instead of coarse taxonomy classes (label granularity)",
+    "trains only on the evaluation's train split (train/test contamination)"
+  ],
+  "n_train_references": 13274,
+  "n_distinct_sequences": 5820,
+  "trainable_top_layers": 4,
+  "trainable_params": 37776384,
+  "total_params": 117068544,
+  "torch_threads": 16,
+  "fragment_lengths": [
+    118,
+    140
+  ],
+  "instances_per_batch": 8,
+  "views_per_instance": 2,
+  "epochs": 2,
+  "learning_rate": 1e-05,
+  "temperature": 0.1,
+  "mean_loss_per_epoch": [
+    0.2682282209234686,
+    0.08704681776243926
+  ],
+  "train_seconds": 5598.7
+}
