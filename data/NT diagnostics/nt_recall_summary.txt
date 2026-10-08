@@ -1,0 +1,9 @@
+=== Nucleotide Transformer v2 (50M multi-species) Recall@K ===
+(IDENTICAL held-out split/fragments as data/Stage0 diagnostics/recall_diagnostic_summary.txt)
+
+n_holdout_fragments         : 1000
+recall_at_1                 : 0.153
+recall_at_5                 : 0.201
+recall_at_10                : 0.223
+n_absent_from_top10         : 777
+pct_absent_from_top10       : 0.777

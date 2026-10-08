@@ -1,0 +1,10 @@
+=== Stage 0 Diagnostic 1: DNABERT Recall@K on held-out MitoFish fragments ===
+(ground truth: >=95% full-sequence identity -- SAME definition as Part 4 calibration)
+(same holdout split/seed/fragment methodology as src/mitofish_rerank_calibration.py)
+
+n_holdout_fragments         : 1000
+recall_at_1                 : 0.417
+recall_at_5                 : 0.533
+recall_at_10                : 0.582
+n_absent_from_top10         : 418
+pct_absent_from_top10       : 0.418

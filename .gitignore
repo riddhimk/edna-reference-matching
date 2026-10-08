@@ -19,8 +19,6 @@ htmlcov/
 .idea/
 
 # Large datasets & raw sequencing dumps
-data/
-models/
 *.fasta
 *.fastq
 *.fastq.gz
@@ -36,3 +34,67 @@ models/
 # Secrets & local logs
 api-key.txt
 *.log
+
+# Data directory exclusions (keep only deployment reference files and benchmark JSONs)
+data/*
+!data/README.md
+!data/species_name_cache.csv
+!data/Precision Recall F1/
+!data/Finetuned architecture evaluation/
+!data/Final diagnostics/
+!data/NT diagnostics/
+!data/HyenaDNA diagnostics/
+!data/GENA-LM diagnostics/
+!data/Stage0 diagnostics/
+!data/Stage3 diagnostics/
+!data/MitoFish results/
+!data/SILVA results/
+!data/app/
+!data/app/.gitkeep
+
+# Exclude multi-gigabyte raw files and intermediate tables inside results folders
+data/SILVA results/silva_reference_table.csv
+data/SILVA results/SILVA_138.2_SSURef_tax_silva_trunc.fasta
+data/SILVA results/*amplicons.csv
+data/SILVA results/silva_18s_v9_large*
+data/SILVA results/silva_16s_v4_*
+data/SILVA results/silva_ref_*
+data/SILVA results/silva_faiss.index
+data/SILVA results/silva_18s_v9_faiss.index
+data/SILVA results/silva_18s_v9_ref_*
+data/SILVA results/silva_18s_v9_sample.csv
+data/SILVA results/silva_reference_table_sample.csv
+data/SILVA results/query_results*.csv
+
+# Exclude MitoFish non-production artifacts
+data/MitoFish results/mitofish_16s_faiss.index
+data/MitoFish results/mitofish_16s_amplicons.csv
+data/MitoFish results/rerank_candidates.csv
+data/MitoFish results/reads_top10_*
+data/MitoFish results/query_results*.csv
+data/MitoFish results/*calibration*
+data/MitoFish results/*sample.csv
+data/MitoFish results/*species_lookup.csv
+data/MitoFish results/*species_name_cache.csv
+
+# Exclude diagnostic training embeddings & heavy per-fragment dumps
+data/* diagnostics/*.npy
+data/* diagnostics/*.csv
+data/Stage0 diagnostics/*.csv
+data/Stage0 diagnostics/run_console_log.txt
+data/Stage3 diagnostics/*.csv
+data/Stage3 diagnostics/*console_log.txt
+data/Final diagnostics/*_per_fragment.csv
+data/Final diagnostics/run_console_log.txt
+
+# Exclude local user runs, uploads, and local SQLite DB
+data/app/uploads/
+data/app/runs/
+data/app/tmp/
+data/app/*.db
+data/app/*.json
+data/logs/
+data/reads_embeddings.npy
+data/reads_ids.csv
+
+models/

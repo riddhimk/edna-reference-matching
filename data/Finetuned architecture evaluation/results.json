@@ -1,0 +1,86 @@
+{
+  "kingdom": "bacteria",
+  "n_holdout_fragments": 1000,
+  "finetuned_model": "models/dnaberts_finetuned_bacteria_v2",
+  "identity_threshold": 95.0,
+  "rrf_k_const": 10,
+  "architectures": [
+    {
+      "architecture": "A_BM25",
+      "recall_at_1": 0.788,
+      "recall_at_5": 0.829,
+      "recall_at_10": 0.835,
+      "n_assigned": 869,
+      "pct_assigned": 0.869,
+      "accuracy_on_assigned": 0.8998849252013809,
+      "mean_pairwise_sim": 0.9004945158958435,
+      "seconds": 39.0
+    },
+    {
+      "architecture": "B_BM25_MMR_frozen",
+      "recall_at_1": 0.788,
+      "recall_at_5": 0.832,
+      "recall_at_10": 0.836,
+      "n_assigned": 870,
+      "pct_assigned": 0.87,
+      "accuracy_on_assigned": 0.8988505747126436,
+      "mean_pairwise_sim": 0.8773609399795532,
+      "seconds": 38.9
+    },
+    {
+      "architecture": "B_BM25_MMR_finetuned",
+      "recall_at_1": 0.788,
+      "recall_at_5": 0.834,
+      "recall_at_10": 0.837,
+      "n_assigned": 870,
+      "pct_assigned": 0.87,
+      "accuracy_on_assigned": 0.9011494252873563,
+      "mean_pairwise_sim": 0.704599142074585,
+      "seconds": 38.8
+    },
+    {
+      "architecture": "C_DNABERT_frozen",
+      "recall_at_1": 0.07,
+      "recall_at_5": 0.126,
+      "recall_at_10": 0.171,
+      "n_assigned": 207,
+      "pct_assigned": 0.207,
+      "accuracy_on_assigned": 0.748792270531401,
+      "mean_pairwise_sim": 0.7579790949821472,
+      "seconds": 79.3
+    },
+    {
+      "architecture": "C_DNABERT_finetuned",
+      "recall_at_1": 0.698,
+      "recall_at_5": 0.768,
+      "recall_at_10": 0.792,
+      "n_assigned": 839,
+      "pct_assigned": 0.839,
+      "accuracy_on_assigned": 0.8963051251489869,
+      "mean_pairwise_sim": 0.7832057476043701,
+      "seconds": 42.8
+    },
+    {
+      "architecture": "D_RRF_frozen",
+      "recall_at_1": 0.122,
+      "recall_at_5": 0.812,
+      "recall_at_10": 0.829,
+      "n_assigned": 867,
+      "pct_assigned": 0.867,
+      "accuracy_on_assigned": 0.8996539792387543,
+      "mean_pairwise_sim": 0.6621658205986023,
+      "seconds": 44.6
+    },
+    {
+      "architecture": "D_RRF_finetuned",
+      "recall_at_1": 0.752,
+      "recall_at_5": 0.825,
+      "recall_at_10": 0.833,
+      "n_assigned": 867,
+      "pct_assigned": 0.867,
+      "accuracy_on_assigned": 0.9123414071510957,
+      "mean_pairwise_sim": 0.7453797459602356,
+      "seconds": 39.5
+    }
+  ]
+}

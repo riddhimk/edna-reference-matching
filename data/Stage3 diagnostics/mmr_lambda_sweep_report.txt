@@ -1,0 +1,14 @@
+=== Tasks 2/3: MMR lambda sweep -- summary ===
+
+BM25 baseline (no MMR): recall@1=0.937 recall@5=0.945 recall@10=0.946 mean_pairwise_sim=0.8603
+
+--- Sweep ---
+lambda=0.5: recall@1=0.937 recall@5=0.946 recall@10=0.946 mean_pairwise_sim=0.8222 pct_sets_near_dup(>=0.999)=0.905
+lambda=0.6: recall@1=0.937 recall@5=0.946 recall@10=0.946 mean_pairwise_sim=0.8307 pct_sets_near_dup(>=0.999)=0.917
+lambda=0.7: recall@1=0.937 recall@5=0.946 recall@10=0.946 mean_pairwise_sim=0.8364 pct_sets_near_dup(>=0.999)=0.931
+lambda=0.8: recall@1=0.937 recall@5=0.946 recall@10=0.946 mean_pairwise_sim=0.8436 pct_sets_near_dup(>=0.999)=0.946
+lambda=0.9: recall@1=0.937 recall@5=0.946 recall@10=0.946 mean_pairwise_sim=0.8510 pct_sets_near_dup(>=0.999)=0.961
+
+Selection rule: recall@10 within 0.005 of BM25 baseline AND recall@1 within 0.05 of BM25 baseline (both judgment calls, stated explicitly); among survivors, lowest mean_pairwise_sim (most redundancy reduction).
+Verdict: accepted
+Selected lambda=0.5

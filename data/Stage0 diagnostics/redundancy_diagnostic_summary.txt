@@ -1,0 +1,48 @@
+=== Stage 0 Diagnostic 2: within-top-10 pairwise embedding-cosine redundancy ===
+
+--- Real reads (n=5000, FROZEN reads_top10_pos.npy, no re-embedding) ---
+n_pairs     : 225000
+mean        : 0.7909886240959167
+median      : 0.7502837181091309
+p5          : 0.6096755862236023
+p25         : 0.6988210678100586
+p50         : 0.7502837479114532
+p75         : 0.9143260717391968
+p90         : 1.0
+p95         : 1.0
+min         : 0.34780997037887573
+max         : 1.0000004768371582
+
+--- Holdout fragments (same set as recall diagnostic) ---
+n_pairs     : 45000
+mean        : 0.8586961627006531
+median      : 0.8734171986579895
+p5          : 0.6421115189790726
+p25         : 0.7480734437704086
+p50         : 0.8734171986579895
+p75         : 0.9999997615814209
+p90         : 1.0
+p95         : 1.0000001192092896
+min         : 0.3659795820713043
+max         : 1.0000004768371582
+
+--- Background: random reference PAIRS, not conditioned on co-retrieval ---
+n_pairs     : 49995
+mean        : 0.5023739337921143
+median      : 0.4946044385433197
+p5          : 0.2831783890724182
+p25         : 0.38485443592071533
+p50         : 0.4946044385433197
+p75         : 0.6186690330505371
+p90         : 0.6907493233680725
+p95         : 0.7278652787208557
+min         : 0.06266710162162781
+max         : 1.000000238418579
+
+--- Set-level near-duplicate rate (>=1 of the 45 in-set pairs exceeds threshold) ---
+real_reads_pct_sets_with_pair_ge_0.999       : 0.912
+real_reads_pct_sets_with_pair_ge_0.99        : 0.9122
+real_reads_pct_sets_with_pair_ge_0.95        : 0.9976
+holdout_pct_sets_with_pair_ge_0.999          : 0.976
+holdout_pct_sets_with_pair_ge_0.99           : 0.98
+holdout_pct_sets_with_pair_ge_0.95           : 0.996

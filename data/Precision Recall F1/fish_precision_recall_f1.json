@@ -1,0 +1,90 @@
+{
+  "kingdom": "fish",
+  "finetuned_model": "models/dnaberts_finetuned_fish_v2",
+  "identity_threshold": 95.0,
+  "n_train_refs": 13274,
+  "n_holdout_refs": 3318,
+  "n_fragments": 5000,
+  "distinct_source_refs": 3318,
+  "fragments_per_reference": 1.506931886678722,
+  "results": [
+    {
+      "n": 1000,
+      "tp": 936,
+      "fp": 12,
+      "fn": 52,
+      "precision": 0.9873417721518988,
+      "recall": 0.9473684210526315,
+      "f1": 0.9669421487603306,
+      "committed": 948,
+      "committed_pct": 0.948,
+      "kingdom": "fish",
+      "arm": "frozen"
+    },
+    {
+      "n": 1000,
+      "tp": 936,
+      "fp": 12,
+      "fn": 52,
+      "precision": 0.9873417721518988,
+      "recall": 0.9473684210526315,
+      "f1": 0.9669421487603306,
+      "committed": 948,
+      "committed_pct": 0.948,
+      "kingdom": "fish",
+      "arm": "finetuned"
+    },
+    {
+      "n": 2000,
+      "tp": 1871,
+      "fp": 32,
+      "fn": 97,
+      "precision": 0.9831844456121913,
+      "recall": 0.9507113821138211,
+      "f1": 0.9666752777060192,
+      "committed": 1903,
+      "committed_pct": 0.9515,
+      "kingdom": "fish",
+      "arm": "frozen"
+    },
+    {
+      "n": 2000,
+      "tp": 1870,
+      "fp": 33,
+      "fn": 97,
+      "precision": 0.9826589595375722,
+      "recall": 0.9506863243518048,
+      "f1": 0.9664082687338501,
+      "committed": 1903,
+      "committed_pct": 0.9515,
+      "kingdom": "fish",
+      "arm": "finetuned"
+    },
+    {
+      "n": 5000,
+      "tp": 4679,
+      "fp": 75,
+      "fn": 246,
+      "precision": 0.984223811527135,
+      "recall": 0.9500507614213198,
+      "f1": 0.9668354168819093,
+      "committed": 4754,
+      "committed_pct": 0.9508,
+      "kingdom": "fish",
+      "arm": "frozen"
+    },
+    {
+      "n": 5000,
+      "tp": 4678,
+      "fp": 76,
+      "fn": 246,
+      "precision": 0.9840134623474969,
+      "recall": 0.9500406173842405,
+      "f1": 0.9667286629468899,
+      "committed": 4754,
+      "committed_pct": 0.9508,
+      "kingdom": "fish",
+      "arm": "finetuned"
+    }
+  ]
+}

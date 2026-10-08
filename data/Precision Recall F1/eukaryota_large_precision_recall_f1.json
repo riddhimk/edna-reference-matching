@@ -1,0 +1,90 @@
+{
+  "kingdom": "eukaryota_large",
+  "finetuned_model": "models/dnaberts_finetuned_eukaryota_large",
+  "identity_threshold": 95.0,
+  "n_train_refs": 20000,
+  "n_holdout_refs": 5000,
+  "n_fragments": 5000,
+  "distinct_source_refs": 5000,
+  "fragments_per_reference": 1.0,
+  "results": [
+    {
+      "n": 1000,
+      "tp": 910,
+      "fp": 1,
+      "fn": 89,
+      "precision": 0.9989023051591658,
+      "recall": 0.9109109109109109,
+      "f1": 0.9528795811518326,
+      "committed": 911,
+      "committed_pct": 0.911,
+      "kingdom": "eukaryota_large",
+      "arm": "frozen"
+    },
+    {
+      "n": 1000,
+      "tp": 910,
+      "fp": 1,
+      "fn": 89,
+      "precision": 0.9989023051591658,
+      "recall": 0.9109109109109109,
+      "f1": 0.9528795811518326,
+      "committed": 911,
+      "committed_pct": 0.911,
+      "kingdom": "eukaryota_large",
+      "arm": "finetuned"
+    },
+    {
+      "n": 2000,
+      "tp": 1809,
+      "fp": 4,
+      "fn": 187,
+      "precision": 0.9977937120794264,
+      "recall": 0.906312625250501,
+      "f1": 0.9498556051457075,
+      "committed": 1813,
+      "committed_pct": 0.9065,
+      "kingdom": "eukaryota_large",
+      "arm": "frozen"
+    },
+    {
+      "n": 2000,
+      "tp": 1809,
+      "fp": 4,
+      "fn": 187,
+      "precision": 0.9977937120794264,
+      "recall": 0.906312625250501,
+      "f1": 0.9498556051457075,
+      "committed": 1813,
+      "committed_pct": 0.9065,
+      "kingdom": "eukaryota_large",
+      "arm": "finetuned"
+    },
+    {
+      "n": 5000,
+      "tp": 4555,
+      "fp": 17,
+      "fn": 428,
+      "precision": 0.9962817147856518,
+      "recall": 0.9141079670880995,
+      "f1": 0.9534275248560963,
+      "committed": 4572,
+      "committed_pct": 0.9144,
+      "kingdom": "eukaryota_large",
+      "arm": "frozen"
+    },
+    {
+      "n": 5000,
+      "tp": 4555,
+      "fp": 17,
+      "fn": 428,
+      "precision": 0.9962817147856518,
+      "recall": 0.9141079670880995,
+      "f1": 0.9534275248560963,
+      "committed": 4572,
+      "committed_pct": 0.9144,
+      "kingdom": "eukaryota_large",
+      "arm": "finetuned"
+    }
+  ]
+}

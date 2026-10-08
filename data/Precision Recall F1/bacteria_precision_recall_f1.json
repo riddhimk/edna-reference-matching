@@ -1,0 +1,90 @@
+{
+  "kingdom": "bacteria",
+  "finetuned_model": "models/dnaberts_finetuned_bacteria_v2",
+  "identity_threshold": 95.0,
+  "n_train_refs": 4000,
+  "n_holdout_refs": 1000,
+  "n_fragments": 5000,
+  "distinct_source_refs": 1000,
+  "fragments_per_reference": 5.0,
+  "results": [
+    {
+      "n": 1000,
+      "tp": 782,
+      "fp": 88,
+      "fn": 130,
+      "precision": 0.8988505747126436,
+      "recall": 0.8574561403508771,
+      "f1": 0.8776655443322109,
+      "committed": 870,
+      "committed_pct": 0.87,
+      "kingdom": "bacteria",
+      "arm": "frozen"
+    },
+    {
+      "n": 1000,
+      "tp": 784,
+      "fp": 86,
+      "fn": 130,
+      "precision": 0.9011494252873563,
+      "recall": 0.8577680525164114,
+      "f1": 0.8789237668161435,
+      "committed": 870,
+      "committed_pct": 0.87,
+      "kingdom": "bacteria",
+      "arm": "finetuned"
+    },
+    {
+      "n": 2000,
+      "tp": 1570,
+      "fp": 154,
+      "fn": 276,
+      "precision": 0.9106728538283063,
+      "recall": 0.8504875406283857,
+      "f1": 0.8795518207282914,
+      "committed": 1724,
+      "committed_pct": 0.862,
+      "kingdom": "bacteria",
+      "arm": "frozen"
+    },
+    {
+      "n": 2000,
+      "tp": 1573,
+      "fp": 151,
+      "fn": 276,
+      "precision": 0.9124129930394431,
+      "recall": 0.850730124391563,
+      "f1": 0.8804925832633641,
+      "committed": 1724,
+      "committed_pct": 0.862,
+      "kingdom": "bacteria",
+      "arm": "finetuned"
+    },
+    {
+      "n": 5000,
+      "tp": 3933,
+      "fp": 380,
+      "fn": 687,
+      "precision": 0.9118942731277533,
+      "recall": 0.8512987012987013,
+      "f1": 0.880555244598679,
+      "committed": 4313,
+      "committed_pct": 0.8626,
+      "kingdom": "bacteria",
+      "arm": "frozen"
+    },
+    {
+      "n": 5000,
+      "tp": 3936,
+      "fp": 380,
+      "fn": 684,
+      "precision": 0.9119555143651529,
+      "recall": 0.8519480519480519,
+      "f1": 0.8809310653536258,
+      "committed": 4316,
+      "committed_pct": 0.8632,
+      "kingdom": "bacteria",
+      "arm": "finetuned"
+    }
+  ]
+}

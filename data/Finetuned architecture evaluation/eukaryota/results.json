@@ -1,0 +1,86 @@
+{
+  "kingdom": "eukaryota",
+  "n_holdout_fragments": 89,
+  "finetuned_model": "models/dnaberts_finetuned_eukaryota_v2",
+  "identity_threshold": 95.0,
+  "rrf_k_const": 10,
+  "architectures": [
+    {
+      "architecture": "A_BM25",
+      "recall_at_1": 0.7078651685393258,
+      "recall_at_5": 0.7078651685393258,
+      "recall_at_10": 0.7078651685393258,
+      "n_assigned": 63,
+      "pct_assigned": 0.7078651685393258,
+      "accuracy_on_assigned": 1.0,
+      "mean_pairwise_sim": 0.7622710466384888,
+      "seconds": 1.9
+    },
+    {
+      "architecture": "B_BM25_MMR_frozen",
+      "recall_at_1": 0.7078651685393258,
+      "recall_at_5": 0.7078651685393258,
+      "recall_at_10": 0.7078651685393258,
+      "n_assigned": 63,
+      "pct_assigned": 0.7078651685393258,
+      "accuracy_on_assigned": 1.0,
+      "mean_pairwise_sim": 0.7201594114303589,
+      "seconds": 2.1
+    },
+    {
+      "architecture": "B_BM25_MMR_finetuned",
+      "recall_at_1": 0.7078651685393258,
+      "recall_at_5": 0.7078651685393258,
+      "recall_at_10": 0.7078651685393258,
+      "n_assigned": 63,
+      "pct_assigned": 0.7078651685393258,
+      "accuracy_on_assigned": 1.0,
+      "mean_pairwise_sim": 0.5560207366943359,
+      "seconds": 1.8
+    },
+    {
+      "architecture": "C_DNABERT_frozen",
+      "recall_at_1": 0.5955056179775281,
+      "recall_at_5": 0.6179775280898876,
+      "recall_at_10": 0.6292134831460674,
+      "n_assigned": 56,
+      "pct_assigned": 0.6292134831460674,
+      "accuracy_on_assigned": 1.0,
+      "mean_pairwise_sim": 0.8527703285217285,
+      "seconds": 2.2
+    },
+    {
+      "architecture": "C_DNABERT_finetuned",
+      "recall_at_1": 0.6629213483146067,
+      "recall_at_5": 0.6853932584269663,
+      "recall_at_10": 0.6966292134831461,
+      "n_assigned": 62,
+      "pct_assigned": 0.6966292134831461,
+      "accuracy_on_assigned": 1.0,
+      "mean_pairwise_sim": 0.7160506248474121,
+      "seconds": 2.6
+    },
+    {
+      "architecture": "D_RRF_frozen",
+      "recall_at_1": 0.6067415730337079,
+      "recall_at_5": 0.7078651685393258,
+      "recall_at_10": 0.7078651685393258,
+      "n_assigned": 63,
+      "pct_assigned": 0.7078651685393258,
+      "accuracy_on_assigned": 1.0,
+      "mean_pairwise_sim": 0.7613286375999451,
+      "seconds": 2.5
+    },
+    {
+      "architecture": "D_RRF_finetuned",
+      "recall_at_1": 0.6853932584269663,
+      "recall_at_5": 0.7078651685393258,
+      "recall_at_10": 0.7078651685393258,
+      "n_assigned": 63,
+      "pct_assigned": 0.7078651685393258,
+      "accuracy_on_assigned": 1.0,
+      "mean_pairwise_sim": 0.6558634042739868,
+      "seconds": 2.0
+    }
+  ]
+}

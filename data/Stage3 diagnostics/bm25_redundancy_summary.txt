@@ -1,0 +1,39 @@
+=== Task 1: BM25 (k=6) top-10 redundancy -- held-out fragments, n=1000 ===
+(sets with <2 candidates, excluded from pairwise stats: 0)
+
+--- BM25 top-10 pairwise embedding-cosine-similarity distribution ---
+n_pairs     : 45000
+mean        : 0.8602954745292664
+median      : 0.9577915668487549
+p5          : 0.4372884929180145
+p25         : 0.7855274081230164
+p50         : 0.9577915668487549
+p75         : 0.9999998807907104
+p90         : 1.0000001192092896
+p95         : 1.000000238418579
+min         : 0.16976812481880188
+max         : 1.0000004768371582
+
+--- Background: random reference pairs, not conditioned on co-retrieval (same as Stage 0) ---
+n_pairs     : 49995
+mean        : 0.5023739337921143
+median      : 0.4946044385433197
+p5          : 0.2831783890724182
+p25         : 0.38485443592071533
+p50         : 0.4946044385433197
+p75         : 0.6186690330505371
+p90         : 0.6907493233680725
+p95         : 0.7278652787208557
+min         : 0.06266710162162781
+max         : 1.000000238418579
+
+--- Set-level near-duplicate rate (>=1 pair in the set exceeds threshold) ---
+bm25_pct_sets_with_pair_ge_0.999             : 0.98
+bm25_pct_sets_with_pair_ge_0.99              : 0.99
+bm25_pct_sets_with_pair_ge_0.95              : 0.997
+
+--- Cross-check: exact sequence-string duplicate pairs (free, no alignment) ---
+exact_string_dup_pair_rate  : 0.3464888888888889 (15592/45000 pairs)
+
+--- For reference: Stage 0's DNABERT top-10 numbers (already reported, not recomputed here) ---
+(data/Stage0 diagnostics/redundancy_diagnostic_summary.txt -- holdout mean=0.859, real-reads mean=0.791)
