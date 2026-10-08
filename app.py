@@ -16,17 +16,19 @@ import gradio as gr
 import pandas as pd
 from fastapi.staticfiles import StaticFiles
 
-try:
-    import spaces
-except ImportError:
-    class spaces:
-        @staticmethod
-        def GPU(fn=None, *args, **kwargs):
-            if fn is not None:
-                return fn
-            def decorator(f):
-                return f
-            return decorator
+# ZeroGPU shim: The matching pipeline is CPU-bound (BM25 + Smith-Waterman alignment)
+# and does not use CUDA or neural networks at runtime. We avoid importing the real
+# `spaces` library because its monkey-patching of torch and multiprocessing
+# triggers BlockingIOError / PID exhaustion in container worker subprocesses.
+class spaces:
+    @staticmethod
+    def GPU(fn=None, *args, **kwargs):
+        if fn is not None:
+            return fn
+        def decorator(f):
+            return f
+        return decorator
+
 
 from src import chat
 from src import run_analysis as ra
@@ -371,7 +373,11 @@ def create_app():
     return demo
 
 
-demo = create_app()
+if __name__ != "__mp_main__":
+    demo = create_app()
+else:
+    demo = None
+
 
 if __name__ == "__main__":
     launch_kwargs = {"server_name": "0.0.0.0", "server_port": 7860, "prevent_thread_lock": True}

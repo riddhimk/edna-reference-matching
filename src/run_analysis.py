@@ -41,6 +41,12 @@ import threading
 import time
 from collections import Counter, defaultdict
 from concurrent.futures import ProcessPoolExecutor, as_completed
+
+try:
+    multiprocessing.set_forkserver_preload(["src.run_analysis"])
+except Exception:
+    pass
+
 from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import Callable, Dict, List, Optional, Tuple
@@ -312,8 +318,8 @@ def _classify_chunk(seqs: List[str]) -> List[dict]:
 
 
 def default_workers() -> int:
-    # All cores but two (left for the API and the OS); EDNA_WORKERS overrides.
-    return int(os.environ.get("EDNA_WORKERS", max(1, (os.cpu_count() or 2) - 2)))
+    # Up to 4 workers (leaving headroom for API & OS); EDNA_WORKERS overrides.
+    return int(os.environ.get("EDNA_WORKERS", max(1, min(4, (os.cpu_count() or 2) - 1))))
 
 
 def classify_unique(seqs: List[str], marker_key: str, workers: int,
@@ -324,7 +330,7 @@ def classify_unique(seqs: List[str], marker_key: str, workers: int,
     chunks = [unique[i:i + chunk] for i in range(0, len(unique), chunk)]
 
     # Small inputs aren't worth the ~3 s of workers loading the index.
-    # Daemonic processes (e.g. inside ZeroGPU or web worker processes) cannot spawn child processes.
+    # Daemonic processes (e.g. inside web worker processes) cannot spawn child processes.
     is_daemon = getattr(multiprocessing.current_process(), "daemon", False)
     if workers <= 1 or len(unique) < 200 or is_daemon:
         index = load_index(marker_key)
@@ -344,13 +350,16 @@ def classify_unique(seqs: List[str], marker_key: str, workers: int,
                     out[s] = r
                 on_progress(len(out))
         return out
-    except (AssertionError, ValueError, RuntimeError):
+    except Exception:
+        # Fall back to serial in-process execution if multiprocessing fails for any reason
         index = load_index(marker_key)
         for c in chunks:
             for s in c:
-                out[s] = assign(s, index)
+                if s not in out:
+                    out[s] = assign(s, index)
             on_progress(len(out))
         return out
+
 
 
 # -------------------------------------------------------------- the run ---
