@@ -33,10 +33,9 @@ python-multipart>=0.0.9
 gradio>=4.40
 
 
-# Project chatbot (src/chat.py): Gemini by default, Claude as the alternative.
-# google-genai: parameters_json_schema on function declarations and
-# HttpRetryOptions need a recent 1.x+; 2.26 is what was tested.
-google-genai>=2.26
+# Project chatbot (src/chat.py): Claude / Anthropic (or optional Gemini).
+# google-genai requires websockets>=13.0, conflicting with HF Space's pinned gradio 5.0.0 (websockets<13.0).
+# google-genai>=2.26
 # anthropic 1.x is required: the code uses output_config and server-side
 # refusal fallbacks.
 anthropic>=1.11

@@ -45,10 +45,24 @@ from typing import Any, Callable, Dict, List, Optional
 import anthropic
 import httpx
 from fastapi import APIRouter, HTTPException
-from google import genai
-from google.genai import errors as genai_errors
-from google.genai import types as gtypes
 from pydantic import BaseModel, Field
+
+try:
+    from google import genai
+    from google.genai import errors as genai_errors
+    from google.genai import types as gtypes
+    HAS_GEMINI = True
+except ImportError:
+    genai = None
+    genai_errors = None
+    gtypes = None
+    HAS_GEMINI = False
+
+class _DummyGenAIError(Exception):
+    code: int = 0
+    message: str = ""
+
+_GenAIAPIError = genai_errors.APIError if HAS_GEMINI else _DummyGenAIError
 
 from . import run_analysis as ra
 from .final_pipeline import BEST_GUESS_MIN_IDENTITY, BM25_K_MER, FROZEN_IDENTITY_THRESHOLD
@@ -356,18 +370,20 @@ def active_provider() -> str:
     p = os.environ.get("EDNA_CHAT_PROVIDER", "auto").lower()
     if p in ("gemini", "anthropic"):
         return p
-    return "gemini" if gemini_api_key() else "anthropic"
+    return "gemini" if (HAS_GEMINI and gemini_api_key()) else "anthropic"
 
 
 def provider_model(provider: str) -> str:
     return GEMINI_MODEL if provider == "gemini" else MODEL
 
 
-_gemini_client: Optional[genai.Client] = None
+_gemini_client: Optional[Any] = None
 
 
-def get_gemini_client() -> genai.Client:
+def get_gemini_client() -> Any:
     global _gemini_client
+    if not HAS_GEMINI:
+        raise ChatNotConfigured("google-genai package is not installed; install google-genai or use anthropic")
     if _gemini_client is None:
         key = gemini_api_key()
         if not key:
@@ -380,7 +396,9 @@ def get_gemini_client() -> genai.Client:
 
 
 @lru_cache(maxsize=1)
-def gemini_config() -> gtypes.GenerateContentConfig:
+def gemini_config() -> Any:
+    if not HAS_GEMINI:
+        return None
     return gtypes.GenerateContentConfig(
         system_instruction="\n\n".join(b["text"] for b in system_blocks()),
         tools=[gtypes.Tool(function_declarations=[
@@ -392,19 +410,21 @@ def gemini_config() -> gtypes.GenerateContentConfig:
     )
 
 
-def _gemini_send(contents: List[gtypes.Content]):
+def _gemini_send(contents: list):
+    if not HAS_GEMINI:
+        raise ChatNotConfigured("google-genai package is not installed; install google-genai or use anthropic")
     # The client has already retried with backoff; a model still overloaded,
     # out of quota or retired is skipped for the next, rather than failing the turn.
     models = [GEMINI_MODEL] + [m for m in GEMINI_FALLBACKS if m != GEMINI_MODEL]
     for i, model in enumerate(models):
         try:
             return get_gemini_client().models.generate_content(model=model, contents=contents, config=gemini_config())
-        except genai_errors.APIError as e:
+        except _GenAIAPIError as e:
             if e.code not in _FALLBACK_CODES or i == len(models) - 1:
                 raise
 
 
-def _dump(content: gtypes.Content) -> dict:
+def _dump(content: Any) -> dict:
     # mode="json" base64-encodes thought signatures, which model_validate restores.
     return content.model_dump(mode="json", exclude_none=True)
 
@@ -412,6 +432,8 @@ def _dump(content: gtypes.Content) -> dict:
 def converse_gemini(history: List[dict], user_text: str) -> dict:
     """Gemini twin of converse_anthropic. History entries hold a dumped
     gtypes.Content in "content"."""
+    if not HAS_GEMINI:
+        raise ChatNotConfigured("google-genai package is not installed; install google-genai or use anthropic")
     contents = [gtypes.Content.model_validate(m["content"]) for m in history]
     new = [gtypes.Content(role="user", parts=[gtypes.Part(text=user_text)])]
     tools_used: List[dict] = []
@@ -537,7 +559,7 @@ def post_message(session_id: str, body: UserMessage):
         except ChatNotConfigured as e:
             raise HTTPException(503, f"the chatbot is not configured: {e}")
         # Gemini
-        except genai_errors.APIError as e:
+        except _GenAIAPIError as e:
             if e.code in (401, 403) or (e.code == 400 and "api key" in str(e).lower()):
                 raise HTTPException(503, "the Gemini API key was rejected; check api-key.txt / GEMINI_API_KEY")
             if e.code == 429:
