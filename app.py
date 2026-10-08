@@ -16,6 +16,18 @@ import gradio as gr
 import pandas as pd
 from fastapi.staticfiles import StaticFiles
 
+try:
+    import spaces
+except ImportError:
+    class spaces:
+        @staticmethod
+        def GPU(fn=None, *args, **kwargs):
+            if fn is not None:
+                return fn
+            def decorator(f):
+                return f
+            return decorator
+
 from src import chat
 from src import run_analysis as ra
 from src.api import ARCH_FILES, PRF_FILES, app as fastapi_app
@@ -72,6 +84,7 @@ def parse_raw_text(text: str) -> Tuple[List[str], List[str]]:
     return ids, seqs
 
 
+@spaces.GPU(duration=60)
 def run_pipeline(
     file_obj,
     raw_text: str,
