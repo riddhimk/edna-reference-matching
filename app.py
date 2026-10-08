@@ -368,18 +368,18 @@ def create_app():
                 )
                 gr.HTML('<iframe src="/dashboard" style="width:100%; height:800px; border:1px solid #334155; border-radius:8px;"></iframe>')
 
-        if os.path.isdir(os.path.join(ROOT, "web")):
-            demo.app.mount("/dashboard", StaticFiles(directory=os.path.join(ROOT, "web"), html=True), name="dashboard")
-        demo.app.mount("/api", fastapi_app)
-
     return demo
 
 
 demo = create_app()
 
 if __name__ == "__main__":
-    launch_kwargs = {"server_name": "0.0.0.0", "server_port": 7860}
+    launch_kwargs = {"server_name": "0.0.0.0", "server_port": 7860, "prevent_thread_lock": True}
     import inspect
     if "ssr_mode" in inspect.signature(demo.launch).parameters:
         launch_kwargs["ssr_mode"] = False
     demo.launch(**launch_kwargs)
+    demo.server_app.mount("/api", fastapi_app)
+    if os.path.isdir(os.path.join(ROOT, "web")):
+        demo.server_app.mount("/dashboard", StaticFiles(directory=os.path.join(ROOT, "web"), html=True), name="dashboard")
+    demo.block_thread()

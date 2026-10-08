@@ -58,6 +58,15 @@ app = FastAPI(
                 "new read files; run history, analytics and a project chatbot.",
 )
 
+from fastapi.middleware.cors import CORSMiddleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # --------------------------------------------------------------------------
 # Registries -- the only paths this API will ever open
 # --------------------------------------------------------------------------

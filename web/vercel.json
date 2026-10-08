@@ -1,0 +1,41 @@
+{
+  "cleanUrls": true,
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://riddhimk-edna-taxai.hf.space/api/:path*"
+    },
+    {
+      "source": "/metrics/:path*",
+      "destination": "https://riddhimk-edna-taxai.hf.space/api/metrics/:path*"
+    },
+    {
+      "source": "/models/:path*",
+      "destination": "https://riddhimk-edna-taxai.hf.space/api/models/:path*"
+    },
+    {
+      "source": "/reads/:path*",
+      "destination": "https://riddhimk-edna-taxai.hf.space/api/reads/:path*"
+    },
+    {
+      "source": "/runs/:path*",
+      "destination": "https://riddhimk-edna-taxai.hf.space/api/runs/:path*"
+    },
+    {
+      "source": "/uploads/:path*",
+      "destination": "https://riddhimk-edna-taxai.hf.space/api/uploads/:path*"
+    },
+    {
+      "source": "/chat/:path*",
+      "destination": "https://riddhimk-edna-taxai.hf.space/api/chat/:path*"
+    },
+    {
+      "source": "/kingdoms",
+      "destination": "https://riddhimk-edna-taxai.hf.space/api/kingdoms"
+    },
+    {
+      "source": "/health",
+      "destination": "https://riddhimk-edna-taxai.hf.space/api/health"
+    }
+  ]
+}
