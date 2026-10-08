@@ -14,28 +14,36 @@
       "destination": "https://riddhimk-edna-taxai.hf.space/api/analytics/:path*"
     },
     {
+      "source": "/backup",
+      "destination": "https://riddhimk-edna-taxai.hf.space/api/backup"
+    },
+    {
       "source": "/backup/:path*",
       "destination": "https://riddhimk-edna-taxai.hf.space/api/backup/:path*"
     },
     {
-      "source": "/backup",
-      "destination": "https://riddhimk-edna-taxai.hf.space/api/backup"
+      "source": "/chat",
+      "destination": "https://riddhimk-edna-taxai.hf.space/api/chat"
     },
     {
       "source": "/chat/:path*",
       "destination": "https://riddhimk-edna-taxai.hf.space/api/chat/:path*"
     },
     {
+      "source": "/uploads",
+      "destination": "https://riddhimk-edna-taxai.hf.space/api/uploads"
+    },
+    {
       "source": "/uploads/:path*",
       "destination": "https://riddhimk-edna-taxai.hf.space/api/uploads/:path*"
     },
     {
-      "source": "/runs/:path*",
-      "destination": "https://riddhimk-edna-taxai.hf.space/api/runs/:path*"
-    },
-    {
       "source": "/runs",
       "destination": "https://riddhimk-edna-taxai.hf.space/api/runs"
+    },
+    {
+      "source": "/runs/:path*",
+      "destination": "https://riddhimk-edna-taxai.hf.space/api/runs/:path*"
     },
     {
       "source": "/metrics/:path*",
