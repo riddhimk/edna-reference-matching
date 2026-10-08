@@ -324,7 +324,9 @@ def classify_unique(seqs: List[str], marker_key: str, workers: int,
     chunks = [unique[i:i + chunk] for i in range(0, len(unique), chunk)]
 
     # Small inputs aren't worth the ~3 s of workers loading the index.
-    if workers <= 1 or len(unique) < 200:
+    # Daemonic processes (e.g. inside ZeroGPU or web worker processes) cannot spawn child processes.
+    is_daemon = getattr(multiprocessing.current_process(), "daemon", False)
+    if workers <= 1 or len(unique) < 200 or is_daemon:
         index = load_index(marker_key)
         for c in chunks:
             for s in c:
@@ -332,15 +334,23 @@ def classify_unique(seqs: List[str], marker_key: str, workers: int,
             on_progress(len(out))
         return out
 
-    ctx = multiprocessing.get_context("forkserver")
-    with ProcessPoolExecutor(max_workers=workers, mp_context=ctx, initializer=_init_worker,
-                             initargs=(marker_key, MARKERS[marker_key], os.getpid())) as pool:
-        futures = {pool.submit(_classify_chunk, c): c for c in chunks}
-        for fut in as_completed(futures):
-            for s, r in zip(futures[fut], fut.result()):
-                out[s] = r
+    try:
+        ctx = multiprocessing.get_context("forkserver")
+        with ProcessPoolExecutor(max_workers=workers, mp_context=ctx, initializer=_init_worker,
+                                 initargs=(marker_key, MARKERS[marker_key], os.getpid())) as pool:
+            futures = {pool.submit(_classify_chunk, c): c for c in chunks}
+            for fut in as_completed(futures):
+                for s, r in zip(futures[fut], fut.result()):
+                    out[s] = r
+                on_progress(len(out))
+        return out
+    except (AssertionError, ValueError, RuntimeError):
+        index = load_index(marker_key)
+        for c in chunks:
+            for s in c:
+                out[s] = assign(s, index)
             on_progress(len(out))
-    return out
+        return out
 
 
 # -------------------------------------------------------------- the run ---

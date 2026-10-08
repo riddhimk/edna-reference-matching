@@ -140,7 +140,7 @@ def run_pipeline(
             marker_key=marker_key,
             read_ids=read_ids,
             sequences=sequences,
-            workers=2,
+            workers=1,
             on_progress=on_progress,
             resolve_species=True,
             detection=detection,
