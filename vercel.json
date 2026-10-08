@@ -1,0 +1,69 @@
+{
+  "cleanUrls": true,
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://riddhimk-edna-taxai.hf.space/api/:path*"
+    },
+    {
+      "source": "/markers",
+      "destination": "https://riddhimk-edna-taxai.hf.space/api/markers"
+    },
+    {
+      "source": "/analytics/:path*",
+      "destination": "https://riddhimk-edna-taxai.hf.space/api/analytics/:path*"
+    },
+    {
+      "source": "/backup/:path*",
+      "destination": "https://riddhimk-edna-taxai.hf.space/api/backup/:path*"
+    },
+    {
+      "source": "/backup",
+      "destination": "https://riddhimk-edna-taxai.hf.space/api/backup"
+    },
+    {
+      "source": "/chat/:path*",
+      "destination": "https://riddhimk-edna-taxai.hf.space/api/chat/:path*"
+    },
+    {
+      "source": "/uploads/:path*",
+      "destination": "https://riddhimk-edna-taxai.hf.space/api/uploads/:path*"
+    },
+    {
+      "source": "/runs/:path*",
+      "destination": "https://riddhimk-edna-taxai.hf.space/api/runs/:path*"
+    },
+    {
+      "source": "/runs",
+      "destination": "https://riddhimk-edna-taxai.hf.space/api/runs"
+    },
+    {
+      "source": "/metrics/:path*",
+      "destination": "https://riddhimk-edna-taxai.hf.space/api/metrics/:path*"
+    },
+    {
+      "source": "/models/:path*",
+      "destination": "https://riddhimk-edna-taxai.hf.space/api/models/:path*"
+    },
+    {
+      "source": "/reads/:path*",
+      "destination": "https://riddhimk-edna-taxai.hf.space/api/reads/:path*"
+    },
+    {
+      "source": "/kingdoms",
+      "destination": "https://riddhimk-edna-taxai.hf.space/api/kingdoms"
+    },
+    {
+      "source": "/health",
+      "destination": "https://riddhimk-edna-taxai.hf.space/api/health"
+    },
+    {
+      "source": "/docs",
+      "destination": "https://riddhimk-edna-taxai.hf.space/api/docs"
+    },
+    {
+      "source": "/openapi.json",
+      "destination": "https://riddhimk-edna-taxai.hf.space/api/openapi.json"
+    }
+  ]
+}
