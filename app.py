@@ -16,18 +16,33 @@ import gradio as gr
 import pandas as pd
 from fastapi.staticfiles import StaticFiles
 
-# ZeroGPU shim: The matching pipeline is CPU-bound (BM25 + Smith-Waterman alignment)
-# and does not use CUDA or neural networks at runtime. We avoid importing the real
-# `spaces` library because its monkey-patching of torch and multiprocessing
-# triggers BlockingIOError / PID exhaustion in container worker subprocesses.
-class spaces:
-    @staticmethod
-    def GPU(fn=None, *args, **kwargs):
-        if fn is not None:
-            return fn
-        def decorator(f):
-            return f
-        return decorator
+import multiprocessing
+
+# Hugging Face ZeroGPU requires at least one @spaces.GPU function during startup
+# in the main process, but subprocess workers must NOT import spaces because
+# spaces' internal torch/cuda process monitors fail with BlockingIOError inside containers.
+if multiprocessing.current_process().name == "MainProcess" and __name__ not in ("__mp_main__",):
+    try:
+        import spaces
+    except ImportError:
+        class spaces:
+            @staticmethod
+            def GPU(fn=None, *args, **kwargs):
+                if fn is not None:
+                    return fn
+                def decorator(f):
+                    return f
+                return decorator
+else:
+    class spaces:
+        @staticmethod
+        def GPU(fn=None, *args, **kwargs):
+            if fn is not None:
+                return fn
+            def decorator(f):
+                return f
+            return decorator
+
 
 
 from src import chat
