@@ -10,7 +10,7 @@
                      reflects those real stages, never a timer. On ready, the
                      same helix decelerates into the logo's resting pose and
                      flies into the sidebar brand mark, then hands over to it.
-     * Cursor        a dot plus an inertial ring (fine pointers only).
+     * Cursor        a responsive dot with glowing aura (fine pointers only).
      * Magnetic      buttons drift a few pixels toward the cursor.
      * Tilt/glow     small cards tilt slightly; every card carries a soft
                      highlight that follows the pointer.
@@ -280,68 +280,34 @@
   /* ------------------------------------------------------- ambient ---- */
 
   function ambient() {
-    if (reduced || mobile) return;
-    const c = document.createElement("canvas");
-    c.id = "fx-ambient";
-    c.setAttribute("aria-hidden", "true");
-    document.body.prepend(c);
-    const ctx = c.getContext("2d");
-    let W = 0, H = 0, dpr = 1;
-    const resize = () => {
-      dpr = Math.min(1.5, devicePixelRatio || 1); W = innerWidth; H = innerHeight;
-      c.width = W * dpr; c.height = H * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    };
-    resize(); addEventListener("resize", resize);
-    const P = Array.from({ length: 38 }, () => ({ x: Math.random() * innerWidth, y: Math.random() * innerHeight,
-      z: 0.3 + Math.random() * 0.7, vx: (Math.random() - 0.5) * 0.08, vy: -0.03 - Math.random() * 0.05 }));
-    let mx = 0, my = 0, px = 0, py = 0, last = 0;
-    addEventListener("pointermove", (e) => { mx = e.clientX / W - 0.5; my = e.clientY / H - 0.5; }, { passive: true });
-    function frame(now) {
-      requestAnimationFrame(frame);
-      if (document.hidden || now - last < 33) return;              // ~30 fps, and nothing while hidden
-      last = now;
-      px = lerp(px, mx, 0.03); py = lerp(py, my, 0.03);
-      ctx.clearRect(0, 0, W, H);
-      const light = doc.dataset.theme === "light";
-      for (const p of P) {
-        p.x += p.vx; p.y += p.vy;
-        if (p.y < -20) { p.y = H + 20; p.x = Math.random() * W; }
-        if (p.x < -20) p.x = W + 20; if (p.x > W + 20) p.x = -20;
-        const x = p.x - px * 40 * p.z, y = p.y - py * 40 * p.z;
-        ctx.fillStyle = light ? `rgba(40,70,140,${0.10 * p.z})` : `rgba(160,195,255,${0.14 * p.z})`;
-        ctx.beginPath(); ctx.arc(x, y, 0.7 + p.z * 1.2, 0, Math.PI * 2); ctx.fill();
-      }
-      doc.style.setProperty("--amb-x", (50 + px * 12).toFixed(2) + "%");
-      doc.style.setProperty("--amb-y", (30 + py * 12).toFixed(2) + "%");
-    }
-    requestAnimationFrame(frame);
+    // Disabled to prevent infinite 30fps style invalidation and background repaints
   }
 
   /* -------------------------------------------------------- cursor ---- */
 
   function cursor() {
     if (!finePointer || reduced) return;
-    const dot = document.createElement("div"), ring = document.createElement("div");
-    dot.className = "fx-cursor-dot"; ring.className = "fx-cursor-ring";
-    dot.setAttribute("aria-hidden", "true"); ring.setAttribute("aria-hidden", "true");
-    document.body.append(ring, dot);
-    let x = innerWidth / 2, y = innerHeight / 2, rx = x, ry = y, raf = 0, shown = false;
-    const tick = () => {
-      rx = lerp(rx, x, 0.2); ry = lerp(ry, y, 0.2);
-      dot.style.transform = `translate3d(${x}px, ${y}px, 0)`;
-      ring.style.transform = `translate3d(${rx}px, ${ry}px, 0)`;
-      raf = Math.abs(rx - x) + Math.abs(ry - y) > 0.3 ? requestAnimationFrame(tick) : 0;   // stops when settled
-    };
+    const dot = document.createElement("div");
+    dot.className = "fx-cursor-dot";
+    dot.setAttribute("aria-hidden", "true");
+    document.body.append(dot);
+    let shown = false, lastHot = false, lastText = false, checkPending = false;
     addEventListener("pointermove", (e) => {
       if (e.pointerType !== "mouse") return;
-      x = e.clientX; y = e.clientY;
-      if (!shown) { shown = true; doc.classList.add("fx-cursor-on"); rx = x; ry = y; }
-      const t = e.target;
-      const text = t.closest && t.closest("input, textarea, select, [contenteditable]");
-      const hot = !text && t.closest && t.closest("a, button, [role=tab], label, summary, tr.click, .navlink, .marker, .suggest button");
-      doc.classList.toggle("fx-cursor-hot", !!hot);
-      doc.classList.toggle("fx-cursor-text", !!text);
-      if (!raf) raf = requestAnimationFrame(tick);
+      dot.style.transform = `translate3d(${e.clientX}px, ${e.clientY}px, 0)`;
+      if (!shown) { shown = true; doc.classList.add("fx-cursor-on"); }
+      if (!checkPending) {
+        checkPending = true;
+        requestAnimationFrame(() => {
+          checkPending = false;
+          const t = e.target;
+          if (!t) return;
+          const text = !!(t.closest && t.closest("input, textarea, select, [contenteditable]"));
+          const hot = !text && !!(t.closest && t.closest("a, button, [role=tab], label, summary, tr.click, .navlink, .marker, .suggest button"));
+          if (hot !== lastHot) { lastHot = hot; doc.classList.toggle("fx-cursor-hot", hot); }
+          if (text !== lastText) { lastText = text; doc.classList.toggle("fx-cursor-text", text); }
+        });
+      }
     }, { passive: true });
     addEventListener("pointerdown", () => doc.classList.add("fx-cursor-down"));
     addEventListener("pointerup", () => doc.classList.remove("fx-cursor-down"));
@@ -350,68 +316,16 @@
 
   /* --------------------------------------------- magnetic + tilt ---- */
 
-  const MAGNETIC = ".btn, .assist-btn, .icon-btn, .send";
   function tactile() {
-    if (!finePointer || reduced) return;
-    let pending = null, magEl = null, tiltEl = null;
-    addEventListener("pointermove", (e) => {
-      if (e.pointerType !== "mouse") return;
-      pending = e;
-      if (!tactile.raf) tactile.raf = requestAnimationFrame(apply);
-    }, { passive: true });
-    function apply() {
-      tactile.raf = 0;
-      const e = pending; if (!e || !e.target.closest) return;
-      // magnetic buttons
-      const m = e.target.closest(MAGNETIC);
-      if (magEl && magEl !== m) { magEl.style.setProperty("--mag-x", "0px"); magEl.style.setProperty("--mag-y", "0px"); magEl = null; }
-      if (m && !m.disabled) {
-        const r = m.getBoundingClientRect();
-        const dx = (e.clientX - (r.left + r.width / 2)) / r.width, dy = (e.clientY - (r.top + r.height / 2)) / r.height;
-        m.style.setProperty("--mag-x", clamp(dx * 6, -5, 5).toFixed(2) + "px");
-        m.style.setProperty("--mag-y", clamp(dy * 5, -4, 4).toFixed(2) + "px");
-        magEl = m;
-      }
-      // card highlight + tilt
-      const c = e.target.closest(".card, .tile");
-      if (tiltEl && tiltEl !== c) { tiltEl.classList.remove("fx-tilt"); tiltEl = null; }
-      if (c) {
-        const r = c.getBoundingClientRect();
-        const hx = (e.clientX - r.left) / r.width, hy = (e.clientY - r.top) / r.height;
-        c.style.setProperty("--hx", (hx * 100).toFixed(1) + "%");
-        c.style.setProperty("--hy", (hy * 100).toFixed(1) + "%");
-        if (r.width < 540 && r.height < 420) {                     // only small cards tilt; large panels just glow
-          c.style.setProperty("--rx", ((0.5 - hy) * 3).toFixed(2) + "deg");
-          c.style.setProperty("--ry", ((hx - 0.5) * 3.5).toFixed(2) + "deg");
-          c.classList.add("fx-tilt");
-        }
-        tiltEl = c;
-      }
-    }
+    // Disabled to eliminate getBoundingClientRect layout reflows and 3D tilt overhead
   }
 
   /* -------------------------------------------------------- reveal ---- */
 
   function reveal() {
-    if (reduced || !("IntersectionObserver" in window)) return;
-    const io = new IntersectionObserver((entries) => {
-      for (const en of entries) if (en.isIntersecting) { en.target.classList.add("fx-in"); io.unobserve(en.target); }
-    }, { rootMargin: "0px 0px -6% 0px", threshold: 0.06 });
-    const SEL = ".content .card, .content .tile, .content .hero, .content .table-wrap";
-    const scan = (root) => {
-      const found = root.querySelectorAll ? root.querySelectorAll(SEL) : [];
-      let i = 0;
-      for (const el of found) {
-        if (el.dataset.fx) continue;
-        el.dataset.fx = "1";
-        if (el.closest(".fx-reveal:not(.fx-in)") ) { el.classList.add("fx-in"); continue; }  // nested: parent reveals it
-        el.classList.add("fx-reveal");
-        el.style.setProperty("--d", Math.min(i++, 8) * 45 + "ms");
-        io.observe(el);
-      }
-    };
-    new MutationObserver((muts) => { for (const m of muts) for (const n of m.addedNodes) if (n.nodeType === 1) scan(n); })
-      .observe(document.getElementById("root"), { childList: true, subtree: true });
+    // Instant reveal: elements appear immediately without mutation observers or delay
+    const els = document.querySelectorAll(".card, .tile, .hero, .table-wrap");
+    for (const el of els) el.classList.add("fx-in");
   }
 
   /* ---------------------------------------------------------- boot ---- */

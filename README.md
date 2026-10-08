@@ -310,56 +310,65 @@ python -m src.finetuned_architecture_evaluation fish
 python -m src.finetuned_architecture_evaluation eukaryota
 ```
 
-## Project structure
+### Project structure
 
 ```
+Dockerfile                    Production container build (Hugging Face Spaces / Docker)
+AGENTS.md                     Workspace and agent workflow guidelines
+requirements.txt              Python dependencies (CPU-optimized PyTorch)
+run_pipeline.py               CLI pipeline entry point
+Explanation.md                Full chronological technical narrative (Parts 1–13)
+
 src/
-  final_pipeline.py          Production pipeline (BM25 → MMR → reranker → decision)
+  final_pipeline.py           Production pipeline (BM25 → MMR → reranker → decision)
   bm25_retrieval.py           BM25 lexical retrieval
   mmr.py                      MMR candidate diversification
   nucleotide_rerank.py        Smith-Waterman alignment reranker
   species_lookup.py           NCBI accession → species name, cached
 
-  api.py                      JSON API over saved results; mounts the routes below
+  api.py                      FastAPI JSON API; mounts static web app at /app/
   app_routes.py               Uploads, run history, results, analytics
-  run_analysis.py             Marker presets; runs an upload through final_pipeline
+  run_analysis.py             Marker presets; runs uploads through final_pipeline
   upload_io.py                FASTQ/FASTA (+gzip) parsing and validation
-  run_store.py                SQLite history of runs and chat sessions
-  cloud_backup.py             rclone backup of the run history to Google Drive
-  chat.py                     Project chatbot (Gemini or Claude + tools over runs/results)
-  cloud_backup.py             rclone backup of the run history to Google Drive
+  run_store.py                SQLite persistence of runs and chat sessions
+  cloud_backup.py             rclone backup of run history
+  chat.py                     Project AI assistant (Gemini/Claude + tool execution)
 
-web/                          The web app, served at /app/
-  index.html                  Page, design tokens and styles
-  app.jsx                     Shell, navigation, project-results pages
-  analysis.jsx                Upload, runs, run findings, compare, and the Assistant drawer
+web/                          Web dashboard (React + vanilla JS, served at /app/)
+  index.html                  Layout, design tokens, responsive styling
+  app.jsx                     Shell, routing, benchmark & evaluation pages
+  analysis.jsx                Upload studio, run progress, results compare, Assistant drawer
+  fx.js                       Zero-latency pointer & lightweight UI motion layer
+  ui.jsx                      UI helper components (CountUp, badges)
 
-  embed_common.py             DNABERT-S embedding (production model)
-  nt_embed.py / hyenadna_embed.py / genalm_embed.py
-                               Alternative model embeddings (comparison only)
+tests/                        147 offline unit tests (no GPU, network, or weights required)
+data/                         Reference tables, embeddings, SQLite database (gitignored)
+models/                       Model checkpoints (gitignored)
+```
 
-  finetune_dnabert_fragment.py  Per-kingdom fine-tuning (corrected)
-  evaluate_finetuned.py         Fine-tuned vs. frozen, isolated retrieval
-  finetuned_architecture_evaluation.py
-                               BM25 / MMR / RRF end-to-end, frozen vs. fine-tuned
+## Running the Web App & Deployment
 
-  extract_amplicon_region*.py  Primer-based reference region extraction
-  run_tara_*_experiment.py     Real-read pipeline runs per kingdom
-  other_kingdom_diagnostics.py Cross-kingdom architecture validation
-  final_evaluation.py          BM25 vs MMR vs RRF vs DNABERT comparison
+### Local Development
+```bash
+# Start API and Web Dashboard
+uvicorn src.api:app --host 127.0.0.1 --port 8000
+# Then open http://127.0.0.1:8000/app/ in your browser
+```
 
-tests/                        Offline unit tests (no model/network required)
-data/                         Reference tables, embeddings, results (gitignored)
-models/                       Fine-tuned model checkpoints (gitignored)
+### Docker / Hugging Face Spaces
+```bash
+# Build container image
+docker build -t edna-taxai .
+
+# Run on port 7860
+docker run -p 7860:7860 edna-taxai
 ```
 
 ## Documentation
 
-- **[`Explanation.md`](Explanation.md)** — full technical narrative,
-  Parts 1–12: every experiment, what was measured, what was ruled out,
-  and why, in chronological order.
-- **Technical reports** (project root, `.docx`): model comparison,
-  real-read run log, bacteria fine-tuning.
+- **[`Explanation.md`](Explanation.md)** — Comprehensive technical narrative covering
+  Parts 1–13: benchmark results, model evaluations, ablation studies, and architectural decisions.
+- **[`AGENTS.md`](AGENTS.md)** — Workspace agent guidelines for running background jobs and evaluations.
 
 ## Roadmap
 
@@ -376,10 +385,7 @@ models/                       Fine-tuned model checkpoints (gitignored)
 
 ## Tests
 
-113 tests, all offline (no model download, no GPU, no network, no API
-key) — verify parsing, retrieval logic, decision thresholds, pipeline
-composition, the upload → run → results flow on a synthetic reference set,
-duplicate detection, and the chatbot's tool loop against a scripted client.
+147 offline unit tests (no model download, no GPU, no network, no API key required) verify parsing, retrieval logic, decision thresholds, pipeline composition, the upload → run → results flow on synthetic reference sets, duplicate detection, and the assistant tool loop.
 
 ```bash
 pytest -q

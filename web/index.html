@@ -85,22 +85,18 @@ body {
   color: var(--ink); font: 400 14.5px/1.6 var(--font); font-feature-settings: "ss01", "cv11";
   -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
   background:
-    radial-gradient(1100px 620px at var(--amb-x, 50%) var(--amb-y, 28%), var(--glow), transparent 62%),
+    radial-gradient(1100px 620px at 50% 28%, var(--glow), transparent 62%),
     var(--plane);
   min-height: 100vh;
 }
-/* faint instrument grid + film grain, both fixed and far below the content */
+/* faint instrument grid, fixed below the content */
 body::before {
   content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0;
   background-image: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px);
   background-size: 56px 56px; opacity: .35;
   mask-image: radial-gradient(ellipse 70% 60% at 50% 30%, #000 20%, transparent 75%);
 }
-body::after {
-  content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0; opacity: .035;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-}
-#fx-ambient { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 0; }
+#fx-ambient { display: none; }
 #root { position: relative; z-index: 1; }
 a { color: var(--ink); text-underline-offset: 3px; text-decoration-color: var(--border-strong); }
 a:hover { text-decoration-color: var(--ink); }
@@ -143,18 +139,17 @@ html.fx-booted #root { opacity: 1; transition: opacity .7s var(--ease) .05s; }
 noscript .noscript { position: fixed; inset: 0; display: grid; place-items: center; background: #07080a; color: #e8edf4; z-index: 300; }
 
 /* ----------------------------------------------------------- cursor */
-.fx-cursor-dot, .fx-cursor-ring { position: fixed; left: 0; top: 0; pointer-events: none; z-index: 400; opacity: 0; transition: opacity .25s; }
-.fx-cursor-dot { width: 6px; height: 6px; margin: -3px 0 0 -3px; border-radius: 50%; background: var(--ink); }
-.fx-cursor-ring { width: 30px; height: 30px; margin: -15px 0 0 -15px; }
-.fx-cursor-ring::before {
-  content: ""; position: absolute; inset: 0; border-radius: 50%; border: 1px solid color-mix(in srgb, var(--ink) 38%, transparent);
-  transition: transform .35s var(--spring), border-color .25s, background-color .25s;
+.fx-cursor-dot { position: fixed; left: 0; top: 0; pointer-events: none; z-index: 400; opacity: 0; transition: opacity .15s; width: 8px; height: 8px; margin: -4px 0 0 -4px; border-radius: 50%; background: var(--ink); will-change: transform; }
+.fx-cursor-dot::before {
+  content: ""; position: absolute; top: 50%; left: 50%; width: 20px; height: 20px; margin: -10px 0 0 -10px; border-radius: 50%; pointer-events: none;
+  background: radial-gradient(circle, color-mix(in srgb, var(--accent) 45%, transparent) 0%, color-mix(in srgb, var(--accent) 15%, transparent) 50%, transparent 75%);
+  box-shadow: 0 0 10px 2px var(--accent-soft);
+  transition: transform .15s ease-out, opacity .15s;
 }
-html.fx-cursor-on .fx-cursor-dot, html.fx-cursor-on .fx-cursor-ring { opacity: 1; }
-html.fx-cursor-hot .fx-cursor-ring::before { transform: scale(1.45); border-color: color-mix(in srgb, var(--accent) 70%, transparent); background: var(--accent-soft); }
-html.fx-cursor-hot .fx-cursor-dot { transform-origin: center; }
-html.fx-cursor-down .fx-cursor-ring::before { transform: scale(.8); }
-html.fx-cursor-text .fx-cursor-dot, html.fx-cursor-text .fx-cursor-ring { opacity: 0; }
+html.fx-cursor-on .fx-cursor-dot { opacity: 1; }
+html.fx-cursor-hot .fx-cursor-dot::before { transform: scale(1.3); box-shadow: 0 0 14px 3px var(--accent-soft); }
+html.fx-cursor-down .fx-cursor-dot::before { transform: scale(.8); }
+html.fx-cursor-text .fx-cursor-dot { opacity: 0; }
 @media (pointer: fine) { html.fx-pointer.fx-cursor-on, html.fx-pointer.fx-cursor-on * { cursor: none; } }
 html.fx-pointer.fx-cursor-on :is(input, textarea, select, [contenteditable]) { cursor: auto; }
 
@@ -217,29 +212,29 @@ html.fx-pointer.fx-cursor-on :is(input, textarea, select, [contenteditable]) { c
 .mobile-bar { display: none; }
 
 /* page transitions: no fill-mode after the end, so nothing stays transformed */
-.page-anim { animation: pageIn .48s var(--ease) both; }
-@keyframes pageIn { from { opacity: 0; transform: translateY(10px); filter: blur(5px); } to { opacity: 1; transform: none; filter: none; } }
+.page-anim { animation: pageIn .3s var(--ease) both; }
+@keyframes pageIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 .page-anim { animation-fill-mode: backwards; }
 
-/* scroll reveal (fx.js tags cards; .fx-in when they enter) */
-html.fx-motion .fx-reveal { transition: opacity .7s var(--ease) var(--d, 0ms), translate .7s var(--ease) var(--d, 0ms); }
-html.fx-motion .fx-reveal:not(.fx-in) { opacity: 0; translate: 0 16px; }
+/* scroll reveal */
+html.fx-motion .fx-reveal { opacity: 1; }
+html.fx-motion .fx-reveal:not(.fx-in) { opacity: 1; }
 
 /* -------------------------------------------------------- primitives */
 .card, .tile {
   position: relative; isolation: isolate; background: var(--panel), var(--surface); border: 1px solid var(--border);
   border-radius: var(--radius); box-shadow: var(--shadow);
-  transition: border-color .25s, box-shadow .35s var(--ease), transform .45s var(--ease);
+  transition: border-color .2s, box-shadow .25s var(--ease);
 }
 .card::before, .tile::before {
   content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; z-index: -1; opacity: 0;
-  background: radial-gradient(420px circle at var(--hx, 50%) var(--hy, 0%), var(--glow), transparent 62%);
-  transition: opacity .35s;
+  background: radial-gradient(220px circle at var(--hx, 50%) var(--hy, 0%), var(--glow), transparent 62%);
+  transition: opacity .25s;
 }
 .card:hover, .tile:hover { border-color: var(--border-strong); }
 .card:hover::before, .tile:hover::before { opacity: 1; }
 .tile:hover, .card.fx-tilt:hover { box-shadow: var(--shadow-hover); }
-html.fx-pointer .fx-tilt { transform: perspective(1100px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)) translateY(-3px); }
+html.fx-pointer .fx-tilt { transform: translateY(-2px); }
 html.fx-pointer .tile:not(.fx-tilt):hover { transform: translateY(-2px); }
 .card { padding: 24px 26px 24px; min-width: 0; }
 .card + .card { margin-top: 20px; }

@@ -1,11 +1,38 @@
-.venv/
-.venv-win/
-.pytest_cache/
+# Byte-compiled / optimized / DLL files
 __pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environments
+.venv/
+.venv*/
+
+# Testing & caches
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local IDE & agent caches
+.claude/
+.vscode/
+.idea/
+
+# Large datasets & raw sequencing dumps
 data/
 models/
-.venv-broken/
-.~lock.*#
+*.fasta
+*.fastq
+*.fastq.gz
+*.fa.gz
+*.tsv
+
+# Binary documents & archives
 *.docx
+*.pdf
+*.zip
+.~lock.*#
+
+# Secrets & local logs
 api-key.txt
-.claude/
+*.log
