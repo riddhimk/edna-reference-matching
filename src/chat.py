@@ -71,10 +71,11 @@ from .app_routes import _get_run_or_404, analytics_compare, run_reads, state
 router = APIRouter(prefix="/chat", tags=["chat"])
 
 MODEL = os.environ.get("EDNA_CHAT_MODEL", "claude-opus-5-5")
-GEMINI_MODEL = os.environ.get("EDNA_GEMINI_MODEL", "gemini-3.8-flash")
+GEMINI_MODEL = os.environ.get("EDNA_GEMINI_MODEL", "gemini-3.5-flash")
 # Tried in order when a model is overloaded (503), out of quota (429 -- free-tier
-# quotas are per model), or retired for this key (404, as gemini-2.5-flash is).
-GEMINI_FALLBACKS = [m for m in os.environ.get("EDNA_GEMINI_FALLBACKS", "gemini-3.5-flash,gemini-3.1-flash-lite").split(",") if m]
+# quotas are per model), or retired for this key (404).
+GEMINI_FALLBACKS = [m for m in os.environ.get("EDNA_GEMINI_FALLBACKS", "gemini-3.5-flash-lite,gemini-3.1-flash-lite").split(",") if m]
+
 _FALLBACK_CODES = (404, 429, 503)
 EFFORT = os.environ.get("EDNA_CHAT_EFFORT", "medium")
 MAX_TOKENS = 16000
