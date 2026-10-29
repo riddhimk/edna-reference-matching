@@ -1,14 +1,3 @@
----
-title: eDNA-TaxAI
-emoji: 🧬
-colorFrom: blue
-colorTo: indigo
-sdk: gradio
-sdk_version: 6.29.1
-app_file: app.py
-pinned: false
----
-
 # eDNA-TaxAI — Environmental DNA Reference Matching
 
 Identifies which species a short environmental DNA (eDNA) read came from
